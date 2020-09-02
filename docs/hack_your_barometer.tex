@@ -1,0 +1,83 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath, amsfonts, amsthm, amssymb}
+\usepackage{fullpage}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{listings}
+\usetikzlibrary{decorations,arrows}
+
+\doublespacing
+
+%opening
+%\title{}
+%\author{Rishabh Verma}
+
+\begin{document}
+
+%\maketitle
+%\begin{abstract}
+%\end{abstract}
+
+\section{Data available:}
+\begin{enumerate}
+	\item Accelerometer data: measures all forces (include gravity) in three dimensions. Note that this is auto-processed into orientation data. I don't think this will be useful because hand motions will dominate.
+	\item Gyroscope data: measures rate of rotation in all three physical axes. Highly worth looking into.
+	\item Barometer: one-dimensional, determines device deformation, may determine radial location of input
+\end{enumerate}
+
+\section{Possible models}
+\begin{enumerate}
+	\item Peaks in pressure sensor will indicate time-series data points of when the device is pressed. 
+\end{enumerate}
+
+\section{Procedure}
+\begin{enumerate}
+	\item Create application where accelerometer/barometer data can be recorded and touch events can be logged
+	\begin{enumerate}
+		\item start/stop for logging accelerometer/barometer.
+			\begin{enumerate}
+				\item Make a button with text that changes when pressed.
+				\item Figure out how to log data in external files.
+				\item Log it.
+				\item 
+			\end{enumerate}
+		\item within the start/stop, record touches
+			\begin{enumerate}
+				\item Figure out how to record touch information. Do I need some sort of canvas?
+			\end{enumerate}
+	\end{enumerate}
+	\item Log some things, upload to computer.
+
+	\begin{enumerate}
+		\item Start by placing a dot at a random location that moves when a tap is detected.
+	\end{enumerate}
+	\item From the sample datastream, figure out how to isolate peaks. 
+	\item Assign a normed score for each peak.
+	\begin{enumerate}
+		\item Perhaps the normed score could be the height, or the ratio of peak height to width (width determined by half height). Maybe weight this ratio, let it be a parameter.
+	\end{enumerate}
+	\item Create a heatmap of peak norms and pixels, and determine viability of project. Is there a working polar-coordinate proxy? Or will we have to do more abstract machine learning stuff?
+	\item Once a peak detection algorithm has been identified, implement it on the device so that it logs only the peaks instead of all noise (for data reduction)
+	\item Create application where digits can be inputted and recorded.
+	\item Include accelerometer/barometer write-to-disk.
+	\item Figure out peak detection; need to log tuples
+	\begin{enumerate}
+		\item Accelerometer curve
+		\item Barometer curve
+		\item 
+	\end{enumerate}
+	\item Dump it all into SQL on desktop
+	\item Do the machine learning
+	\begin{enumerate}
+		\item Start by creating a heatmap of 
+	\end{enumerate}
+	\item With the model, attempt to identify digits from accelerometer/barometer
+	\begin{enumerate}
+		\item Create application with grid
+		\item User inputs data for SOME PERIOD OF TIME
+		\item 
+	\end{enumerate}
+\end{enumerate}
+
+\end{document}

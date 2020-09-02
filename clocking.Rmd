@@ -1,0 +1,193 @@
+---
+title: "analysis"
+author: "Rishabh Verma"
+date: "7/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+data <- read_csv("data/clock.csv") %>% arrange(time)
+```
+
+Type -1: uptimeMillis (for touch events)
+Type -2: elapsedRealtimeNanos (for sensor events)
+Type -3: delta (for converting)
+
+The first tidbits of types -1,-2 will be the ones used to compute the sole -3.
+
+```{r}
+first_millis <- data %>% filter(type == -1) %>% head(1) %>% select(time) %>% as.double()
+
+first_nanos <- data %>% filter(type == -2) %>% head(1) %>% select(time) %>% as.double()
+
+delta <- data %>% filter(type == -3) %>% select(time) %>% as.double()
+delta
+
+```
+
+This represents the error computed by the delta function in unit nanoseconds. It's only 2.5 millliseconds off, which is reasonable.
+```{r}
+first_millis*1000 + delta - first_nanos
+```
+
+```{r}
+millis <- data %>% filter(type == -1)
+nanos <- data %>% filter(type == -2)
+
+millis
+nanos
+```
+
+There are four rows in each table corresponding to 4 synchronized clock measurements. One ring to bring them all, and in the darkness, bind them.
+
+
+```{r}
+events <- bind_cols(millis, nanos) %>% select(type_1 = type...1, time_1 = time...2, type_2 = type...6, time_2 = time...7)
+
+head(events)
+
+events %>% ggplot(aes(x=time_1, y=time_2)) +
+  geom_point() +
+  geom_line()
+```
+This does look linear. Let's compute the linear regression.
+
+```{r}
+x <- events$time_1 %>% as.data.frame()
+y <- events$time_2 %>% as.data.frame()
+
+
+relation <- lm(time_1 ~ time_2, data = events)
+
+print(relation)
+```
+
+
+
+Type 1: accelerometer
+Type 4: gyroscope
+Type 6: pressure
+Type -27: touch
+
+
+```{r}
+accelerometer <- data %>% 
+  filter(type == 1) %>% 
+  select(time, one, two, three) %>% 
+  arrange(desc(time))
+  
+pressure <- data %>% 
+  filter(type == 6) %>% 
+  select(time, one) %>% 
+  arrange(desc(time))
+
+gyroscope <- data %>% 
+  filter(type == 4) %>% 
+  select(time, one, two, three) %>% 
+  arrange(desc(time))
+
+touch <- data %>% 
+  filter(type == -27) %>% 
+  select(time, one, two) %>% 
+  arrange(desc(time))
+```
+
+
+
+
+```{r}
+accelerometer %>% select(time) %>% mutate(time = time) %>% summary()
+
+gyroscope %>% select(time) %>% mutate(time = time) %>% summary()
+
+pressure %>% select(time) %>% mutate(time = time) %>% summary()
+
+touch %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
+```
+
+```{r}
+first %% 1e+11
+last %% 1e+11
+cutoff %% 1e+11
+```
+
+```{r}
+p = 1.00
+
+first <- data %>% filter(type == -27) %>% select(time) %>% min()
+last  <- data %>% filter(type == -27) %>% select(time) %>% max()
+
+cutoff = (last-first)*p + first
+```
+
+Graph the first `p`*100 percent of data.
+```{r}
+accelerometer %>% 
+  filter(time < cutoff) %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+pressure %>% 
+  filter(time < cutoff) %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+gyroscope %>% 
+  filter(time < cutoff) %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+```
+
+Graph all the data.
+```{r}
+accelerometer %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+pressure %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+gyroscope %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+touch %>%
+  ggplot() +
+  geom_point(aes(x=time,y=0))
+```
+
+
+```{r}
+p = 0.03
+
+gyroscope <- data %>% 
+  filter(type == 4) %>% 
+  select(time, one, two, three) %>% 
+  arrange(desc(time))
+
+
+first <- gyroscope %>% select(time) %>% min()
+last <- gyroscope %>% select(time) %>% max()
+
+cutoff = (last-first)*p + first
+
+gyroscope %>% 
+  filter(time < cutoff) %>% 
+  ggplot() +
+  geom_point(aes(x=time,y=one))
+
+head(gyroscope)
+```
+
