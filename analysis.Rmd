@@ -15,141 +15,41 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 ```
 
-```{r}
-data <- read_csv("data/fixed.csv")
-```
-
-
-
-Type 1: accelerometer
-Type 4: gyroscope
-Type 6: pressure
-Type -27: touch
-
 
 ```{r}
-accelerometer <- data %>% 
-  filter(type == 1) %>% 
-  select(time, one, two, three) %>% 
-  arrange(desc(time))
-  
-pressure <- data %>% 
-  filter(type == 6) %>% 
-  select(time, one) %>%
-  arrange(desc(time))
-
-gyroscope <- data %>% 
-  filter(type == 4) %>% 
-  select(time, one, two, three) %>% 
-  arrange(desc(time))
-
-touch <- data %>% 
-  filter(type == -27) %>% 
-  select(time, one, two) %>% 
-  arrange(desc(time))
-```
-
-
-
-
-```{r}
-accelerometer %>% select(time) %>% mutate(time = time) %>% summary()
-
-gyroscope %>% select(time) %>% mutate(time = time) %>% summary()
-
-pressure %>% select(time) %>% mutate(time = time) %>% summary()
-
-touch %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
-```
-
-
-
-```{r}
-p = .01
-
-first <- data %>% filter(type == -27) %>% select(time) %>% min()
-last  <- data %>% filter(type == -27) %>% select(time) %>% max()
-
-cutoff = (last-first)*p + first
-```
-
-Graph the first `p`*100 percent of data.
-```{r}
-accelerometer %>% 
-  filter(time < cutoff) %>% 
-  ggplot() +
-  geom_point(aes(x=time,y=one))
-
-pressure %>% 
-  filter(time < cutoff) %>% 
-  ggplot() +
-  geom_point(aes(x=time,y=one))
-
-gyroscope %>% 
-  filter(time < cutoff) %>% 
-  ggplot() +
-  geom_point(aes(x=time,y=one))
-
-```
-
-
-```{r}
-p = 0.3
-
-gyroscope <- data %>% 
-  filter(type == 4) %>% 
-  select(time, one, two, three) %>% 
-  arrange(desc(time))
-
-
-first <- gyroscope %>% select(time) %>% min()
-last <- gyroscope %>% select(time) %>% max()
-
-cutoff = (last-first)*p + first
-
-gyroscope %>% 
-  filter(time < cutoff) %>% 
-  ggplot() +
-  geom_point(aes(x=time,y=one))
-
-head(gyroscope)
-```
-This data isn't very clean, so let's try starting over with uncalibrated data and calibrating it ourselves using measurements taken at the beginning and the end.
-
-```{r}
-data <- read_csv("data/uncalibrated.csv")
+data <- read_csv("data/data.csv")
 ```
 
 ```{r}
 accelerometer <- data %>% 
   filter(type == 1) %>% 
   select(time, one, two, three) %>% 
-  arrange(desc(time))
+  arrange(time)
   
 pressure <- data %>% 
   filter(type == 6) %>% 
   select(time, one) %>% 
-  arrange(desc(time))
+  arrange(time)
 
 gyroscope <- data %>% 
   filter(type == 4) %>% 
   select(time, one, two, three) %>% 
-  arrange(desc(time))
+  arrange(time)
 
 uncalibrated_touch <- data %>% 
   filter(type == -27) %>% 
   select(time, one, two) %>% 
-  arrange(desc(time))
+  arrange(time)
 ```
 
 ```{r}
-accelerometer %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
+accelerometer %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
 
-gyroscope %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
+gyroscope %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
 
-pressure %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
+pressure %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
 
-uncalibrated_touch %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
+uncalibrated_touch %>% select(time) %>% mutate(time = time %% 1e+11) %>% summary()
 ```
 
 Type -1: uptimeMillis (for touch events)
@@ -167,8 +67,7 @@ uptimeMillisEnd <- data %>%
   filter(type == -1) %>% 
   select(time) %>% 
   slice(2) %>% 
-  as.double()%>% 
-  as.integer()
+  as.double() 
 
 elapsedRealtimeNanosStart <- data %>% 
   filter(type == -2) %>% 
@@ -191,7 +90,7 @@ We can confirm the slope using the secant between the start and end points.
 
 ```{r}
 m = (elapsedRealtimeNanosEnd - elapsedRealtimeNanosStart) / (uptimeMillisEnd - uptimeMillisStart)
-(m - 1e+6)/1e+6*100 # percent error
+(m - 1e+6)/1e+6*100 # percent error from 10^6
 ```
 
 Then for a point $$(x_1,y_1)$$, I can calculate $$b = y_1 - mx_1$$
@@ -205,21 +104,77 @@ Now we can convert all of the time data for the touch input
 touch <- uncalibrated_touch %>% 
   mutate(time = m*time + b)
 
-touch %>% select(time) %>% mutate(time = time %% 1e+10) %>% summary()
+touch %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
 ```
 Now we're going to graph them together.
 
 ```{r}
-## value: {'one', 'two', 'three'}
-scatterplot <- function(data, value) {   
+first_touch = touch %>% 
+  select(time) %>%
+  min %>%
+  as.double
+
+last_touch = touch %>% 
+  select(time) %>%
+  max %>%
+  as.double
+
+range = last_touch - first_touch
+
+## Pre-conditions not enforced:
+## value = {'one', 'two', 'three'}
+## 0 <= start < end <= 1
+scatterplot <- function(data, value, start, end) {   
+  # Use start/end to find a proportion of the touch input. Then find all sensor data within.
+  # (Decided because multiple sensors are used, but there is only one touch dataset)
+  open = range*start + first_touch
+  close = range*end + first_touch
   
+  graph <- data %>%
+      filter(time > open & time < close)
+  
+  if (value == "one") {
+    graph <- graph %>%
+      ggplot(aes(x=time, y=one))
+  } else if (value == "two") {
+    graph <- graph %>%
+      ggplot(aes(x=time, y=two))
+  } else if (value == "three") {
+    graph <- graph %>%
+      ggplot(aes(x=time, y=three))
+  }
+  
+  graph <- graph + geom_point()
+  
+  taps <- touch %>%
+    filter(time > open & time < close)
+  
+  for (i in 1:as.integer(count(taps))) {
+    time <- slice(taps, i)[1] %>% as.double()
+    graph <- graph + geom_vline(xintercept = time)
+  }
+  return(graph)
 }
 
 ```
 
 
+Hold a phone horizontally while looking down. Consider pitch/yaw/roll from this orientation.
+
+Vertical lines represent touch input. All touch inputs seem to line up with spikes in the gyro data, but spikes in the gyro data do NOT correspond with touch inputs. As such, we must use the pressure sensor to detect when a touch input occurs. Dataset one seems the most clean (I hypothesize this axis is pitch, because I would expect pitch to vary most with device inputs on the bottom of the screen.)
+
 ```{r}
-p = 1
+scatterplot(gyroscope, "one", 0.03, 0.15)
+scatterplot(gyroscope, "two", 0.03, 0.15)
+scatterplot(gyroscope, "three", 0.03, 0.15)
+```
+
+```{r}
+scatterplot(pressure, "one", 0.03, 0.15)
+```
+
+```{r}
+p = 0.15
 first = touch %>% select(time) %>% arrange(time) %>% slice(1) %>% as.double()
 last = touch %>% select(time) %>% arrange(desc(time)) %>% slice(1) %>% as.double()
 cutoff = first + p*(last-first)
@@ -231,7 +186,7 @@ graph <- gyroscope %>%
 
 graph
 
-taps = dim(touch)[1]
+taps = count(touch) %>% as.integer() * p
 
 for (i in 1:taps) {
   time <- slice(touch, i)[1] %>% as.double()
@@ -283,12 +238,9 @@ https://www.rdocumentation.org/packages/rwt/versions/1.0.0/topics/denoise
 library(rwt)
 ```
 
-We're going to chunk this by windows of 64 samples.
+We're going to try wavelet denoising. This requires a power of 2 for the sample size.
 ```{r}
-WINDOW_LENGTH = 128
-chunks = floor(gyroscope %>% count %>% as.integer / WINDOW_LENGTH)
-#samples = WINDOW_LENGTH*chunks
-samples = 1023
+samples = 2^(floor(log2(count(gyroscope)))) %>% as.integer()
 gyroscope <- gyroscope %>% slice(1:samples)
 
 smooth_data <- gyroscope %>% 
@@ -298,9 +250,24 @@ smooth_data <- gyroscope %>%
   
 h <- daubcqf(4)  # must be even
 
-one_smooth <- denoise.dwt(smooth_data, h$h.0)  
+one_smooth <- denoise.dwt(smooth_data, h$h.0)[1] %>% as_tibble() %>% select(smoothed = xd)
+
+one_smooth <- bind_cols(gyroscope, one_smooth)
+
+graph <- one_smooth %>% 
+  ggplot() +
+  geom_point(aes(x = time, y = smoothed, color = "raw")) +
+  geom_point(aes(x = time, y = one, color = "LPF"))
 
 
+taps = dim(touch)[1]
+
+for (i in 1:taps) {
+  time <- slice(touch, i)[1] %>% as.double()
+  graph <- graph + geom_vline(xintercept = time)
+}
+
+graph
 ```
 
 ```{r}

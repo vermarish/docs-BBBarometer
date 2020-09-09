@@ -9,22 +9,26 @@ gyroscope <- data %>%
   arrange(desc(time))
 
 
+smoothen <- function() {
+  WINDOW_LENGTH = 128
+  chunks = floor(gyroscope %>% count %>% as.integer / WINDOW_LENGTH)
+  samples = WINDOW_LENGTH*chunks
+  
+  gyroscope <- gyroscope %>% slice(1:samples)
+  
+  smooth_data <- gyroscope %>% 
+    select(one) %>% 
+    unlist()
+  
+  
+  h <- daubcqf(4)  # must be even
+  
+  one_smooth <- denoise.dwt(smooth_data, h$h.0)
+}
 
-WINDOW_LENGTH = 128
-chunks = floor(gyroscope %>% count %>% as.integer / WINDOW_LENGTH)
-samples = WINDOW_LENGTH*chunks
+smoothen
 
-gyroscope <- gyroscope %>% slice(1:samples)
-
-smooth_data <- gyroscope %>% 
-  select(one) %>% 
-  unlist()
-browser()
-h <- daubcqf(4)  # must be even
-
-one_smooth <- denoise.dwt(smooth_data, h$h.0) %>% as_tibble()
-
-one_smooth
+one_smooth <- smoothen()
 
 # one_smooth <- bind_cols(gyroscope, one_smooth)
 

@@ -28,7 +28,13 @@
 
 \section{Possible models}
 \begin{enumerate}
-	\item Peaks in pressure sensor will indicate time-series data points of when the device is pressed. 
+	\item Use pressure sensor to determine when an input is pressed. (I think using the height of the pressure reading to determine radial distance will not be feasible; low SNR and too much variance in signal. No two taps are identically the same.)
+	
+	\item Given above model to determine when an input is pressed, we can detect the peak in the gyroscope at the time. Can I assume that the closest gyro point is near the top of the peak? Can I then detect the peak by catching the zeros on the left/right side? Or maybe instead of using zero as a threshold for left/right peak detection, I can isolate the peak by using |p| > 0.2 or something.
+	
+	I think model #1 is going to be most challenging since it will require peak detection in fairly sparse data. Visually, touch inputs are succeeded by an increase/decrease in pressure. This makes sense, because the touch input is registered initially, when the finger makes first contact with the screen; the device pressure spike would occur subsequently, after first contact when the finger applies pressure.
+	
+	model #2 sounds doable with basic numerical analysis. 
 \end{enumerate}
 
 \section{Procedure}
