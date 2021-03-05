@@ -1,13 +1,12 @@
 library(shiny)
 library(tidyverse)
+library(scales)
 
 ui <- fluidPage(
-  # App title
   titlePanel("Big Brother Barometer"),
   
-  # Sidebar layout (contains I/O definitions)
+  # contains description and input definitions
   sidebarLayout(
-    # Sidebar panel for inputs
     sidebarPanel(
       
       p("Imagine typing a passcode onto your phone. With each input, the force of your thumb on the display causes two phenomena."),
@@ -44,7 +43,7 @@ ui <- fluidPage(
       )
     ),
     
-    # Main panel for displaying outputs
+    # Main panel for displaying output graph
     mainPanel(
       plotOutput(outputId = "timeSeries", height="75vh"), width=7
     )
@@ -53,8 +52,6 @@ ui <- fluidPage(
 
 
 server <- function(input, output) {
-  # This expression stores a histogram. 
-  #      It is reactive to change in input.
   output$timeSeries <- renderPlot({
     y <- input$categories
     if (length(y) > 0) {
@@ -62,15 +59,14 @@ server <- function(input, output) {
     } else{
       plot <- scatterplot(data=tidbits, start=input$range[1], end=input$range[2])
     }
-    #ggplotly(plot + theme(text = element_text(size=input$fontsize)))
     plot + theme(text = element_text(size=input$fontsize))
   })
 }
 
-# Get data
+## Get data
 tidbits <- read_csv("data/data.csv")
 
-# Calibrate the touch
+## Calibrate the touch
 uncalibrated_touch <- tidbits %>%
   filter(type == -27)
 
@@ -96,7 +92,8 @@ tidbits <- tidbits %>%
   filter(type != -27) %>%
   union(touch)
 
-# Scale pressure values so they fit on the same y-axis as gyrosocope data.
+
+## Scale pressure values so they fit on the same y-axis as gyrosocope data.
 highest_g <- tidbits %>%
   filter(type == 4) %>%  # gyroscope 
   select(one, two, three) %>%
@@ -165,17 +162,18 @@ trim <- function(data, start, end) {
 
 
 ## Pre-conditions not enforced:
-## value = {'one', 'two', 'three', 'one_smooth', 'two_smooth', 'three_smooth'}
+## value is a list containing any subset of c('p', 'g1', 'g2', 'g3')
 ## 0 <= start < end <= 1
 scatterplot <- function(data, values=NULL, start, end) {   
-  # Use start/end to find a proportion of the touch input. Then find all sensor data within.
-  # (Decided because multiple sensors are used, but there is only one touch dataset)
+  # Use start/end to find a proportion of the touch input. Then find all sensor data within those bounds.
+  # (Decided because the touch data is the primary dataset.
   
   data <- data %>%
     trim(start, end) 
   
   graph <- ggplot()
   
+  # graph each value in values
   i = 1
   while (i <= length(values)) {
     value = values[i]
@@ -183,27 +181,30 @@ scatterplot <- function(data, values=NULL, start, end) {
       graph <- graph +
         geom_line(data=filter(data, type==6), 
                   aes(x=time, y=one),
-                  colour="#003fec")
+                  colour="#003fec",
+                  size=1)
     } else if (value == 'g1') {
       graph <- graph +
         geom_line(data=filter(data, type==4),
                   aes(x=time, y=one),
-                  color="#38d05d")
+                  color="#38d05d",
+                  size=1)
     } else if (value == 'g2') {
       graph <- graph +
         geom_line(data=filter(data, type==4),
                   aes(x=time, y=two),
-                  color="#bc5090")
+                  color="#bc5090",
+                  size=1)
     } else if (value == 'g3') {
       graph <- graph +
         geom_line(data=filter(data, type==4),
                   aes(x=time, y=three),
-                  color="#ff6361")
+                  color="#ff6361",
+                  size=1)
     }
     i = i + 1
   }
   
-  graph <- graph + scale_y_continuous()
   
   # Add title and subtitle
   duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
@@ -226,9 +227,9 @@ scatterplot <- function(data, values=NULL, start, end) {
     ylim(-amplitude, amplitude)
   
   graph <- graph + 
-    xlab("time (nanoseconds") +
-    ylab("data value")
-  
+    xlab("time") +
+    ylab("data value") +
+    theme(axis.text.x = element_blank())
   return(graph)
 }
 
