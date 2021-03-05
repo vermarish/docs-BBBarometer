@@ -228,7 +228,7 @@ Vertical lines represent touch input. All touch inputs seem to line up with spik
 ```{r}
 scatterplot(pressure, "one", 0.03, 0.15)
 ```
--->
+
 ### I don't know how to do peak detection..
 
 ..but here's my best guess.
@@ -236,7 +236,7 @@ scatterplot(pressure, "one", 0.03, 0.15)
 Visually, it seems like each peak consists of at least two or three high data points. Let's keep track of the last three taps. If all of these taps exceed **some** threshold, then we've found a peak and we can mark it until the data falls below the threshold again.
 
 
-<!--
+
 This method is a start, but it could very naively run into two subsequent increases which are part of the same peak, and declare it to be the same peak.
 
 So then perhaps an increase must be followed by a decrease? Once an increase is observed, it will be recorded as a touch event, but no other increase will be observed until we notice a decrease.
@@ -271,7 +271,7 @@ non-jagged assumption
 I pray it will not be jagged. Then a peak will be a simple increase+decrease. I think this assumption is sound for non-trickery touch input.
 
 While watching after an increase, we will continue watching until a decrease occurs. Then we're over the hill, and we can assume the peak will decrease until it is restored to baseline pressure. We will not wait for baseline pressure, we will simply wait a few samples until the tip of the peak has been climbed and pray baseline pressure has arrived, and further pray that the next tap has not yet occurred. In order for a subsequent tap to occur this quickly, we would very nearly need two fingers touching the display simultaneously. I don't think this will happen.
--->
+
 ### Thankfully, the pressure sensor can be easily denoised
 
 This whole process will be smoother if we can denoise the data (pun intended). Let's start by computing a 5-tap running average to low-pass filter our data. I wrote a function `smoothen_col(data, value, n)` which applies a LPF to a data column via an $n$-tap running average.
@@ -321,7 +321,7 @@ scatterplot(smooth_pressure, "one_smooth", 0.03, 0.15) + geom_hline(yintercept =
 ```
 
 A 5-tap moving average looks pretty good. I've plotted the mean as a horizontal black line, and it's... okay? It sits at 992.2594, which seems alright for this narrow data window densely filled with touch inputs, but the mean will only be lower when considering data with sparse touch inputs, which is unfortunate. I don't think the mean will be a useful threshold in an actual application.
-<!--
+
 What if I do something really crazy? What if I use a running average to keep track of the midline?
 
 If peaks are sparse, the running average will be closer to base pressure. The occasional peak will ensure that it stays a bit higher than that.
@@ -333,8 +333,8 @@ So a simple arithmetic mean has the problem that it might be too low in the case
 Eh, let's just try arithmetic mean for now and see what happens.
 
 Given a start/end proportion, we'll compute a window in time. Then we look at the pressure data, smoothen the data, and find the average on this window. For a peak beginning, we take the naive approach; "when does the function rise above the threshold?"
--->
-<!-- This function is in progress.
+
+ This function is in progress.
 ```{r}
 ## data: from pressure sensor. cols = [time | one]
 ## 0 <= start < end <= 1
@@ -350,7 +350,6 @@ draw_input <- function(data, start, end) {
 draw_input(pressure, 0.02, 0.15)
 ```
 
--->
 
 
 
@@ -361,7 +360,7 @@ draw_input(pressure, 0.02, 0.15)
 
 
 ### What if I try some wavelet denoising for the gyroscope data?
-<!--
+
 
 
 Let's try a low-pass filter, see if that does the trick.
@@ -398,7 +397,7 @@ https://www.rdocumentation.org/packages/rwt/versions/1.0.0/topics/denoise
 ```{r}
 library(rwt)
 ```
--->
+
 
 
 We're going to try wavelet denoising. This requires a power of 2 for the sample size.
@@ -468,3 +467,4 @@ for (i in 1:taps) {
 
 graph
 ```
+-->
