@@ -1,5 +1,5 @@
 ---
-title: "Big Brother Barometer"
+title: "analysis"
 author: "Rishabh Verma"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
@@ -8,58 +8,26 @@ output:
     theme: cerulean
 ---
 
-<style type="text/css">
-  p {
-  font-size: 12pt;
-  }
-</style>
-
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r message = FALSE, warning = FALSE, include=FALSE}
 library(tidyverse)
+library(plotly)
 ```
+# Abstract
 
-----
+My phone has a gyroscope and a barometer, which respectively measure rotational velocity and air pressure. This paper centers around the phenomenon that when I touch the screen, the barometer registers a spike in air pressure, likely because the force of my finger causes a volume deflection inside the phone. The gyroscope is susceptible to recording tremors in the hand holding the phone, but if the barometer can indicate WHEN touch input occurs, the gyroscope can indicate WHERE on the screen the touch input occurs. This could be applied to create a malicious background process which can read a user's PIN code with access only to barometer and gyroscope sensor data. This report is a work in progress.
 
-My name's Rishabh, and this project is a showcase for the skills I've learned studying algorithms and statistics. I'm studying to be a data scientist, a software engineer, or something in between. Labels can be hard. 
-
-Anyhow, here's the premise.
-
-## Abstract
-
-My phone has a gyroscope and a barometer, which respectively measure rotational velocity and air pressure. This paper centers around the phenomenon that when I touch the screen, the barometer registers a spike in air pressure. This is likely because the force of my finger causes a volume deflection inside the phone. The gyroscope is susceptible to recording tremors in the hand holding the phone, but if the barometer can indicate *when* touch input occurs, the phone's motion recorded by the gyroscope can indicate *where* on the screen the touch input occurs. 
-
-This could be applied to create a malicious background process which can read a user's PIN code with access only to device sensor data. This report is a work in progress.
-
-#### Skills practiced: Software Development
-
-
-* Android app, sensors API
-* SQL
-
-#### Skills practiced: Data Science
-
-
-
-* Data cleaning
-* Denoising time-series via low-pass filter
-* Time-series windowed peak detection
-* Data mining time-series
-* Principal Component Analysis
-
-
-## Collect the data
+# Presenting the data
 
 
 ```{r message = FALSE}
 tidbits <- read_csv("data/data.csv")
 ```
   
-I've made an Android app with a 10-digit passcode interface and a stopwatch. When the stopwatch is running, it captures the following data:
+I've made an Android app that, when I hit "start" and "stop", it captures the following data:
 
 Type 1: accelerometer data (includes x/y/z)  
 Type 4: gyroscope data (includes x/y/z)  
@@ -97,31 +65,27 @@ A tidbit is an event which includes the fields `type, time, one, two, three`. Th
 * For the pressure data, one corresponds to the reading and two/three are null. 
 * For the touch data, one/two correspond to x/y location on the screen, and three is null.
 
+Now let's talk about why the touch data needs to be calibrated.
 
-## Clean the data
+# Cleaning the data
 
-#### Observation: Each data tidbit is timestamped, but sensor events and touch events use different clocks.
+Each data tidbit is timestamped, but **sensor events and touch events use different clocks**. The Android API bases touch timestamps off of the "uptimeMillis" clock and bases sensor timestamps off of the "elapsedRealtimeNanos" clock. These are different time-counting systems, and so I have to convert them. I want to keep the sensor data as accurate as possible, and the touch data only needs to be approximate, so I choose to convert the touch data to match the elapsedRealtimeNanos clock.
 
-
-The Android API bases touch timestamps off of the "uptimeMillis" clock and bases sensor timestamps off of the "elapsedRealtimeNanos" clock. These are different time-counting systems, and so I have to convert them. I want to keep the sensor data as accurate as possible, and the touch data only needs to be approximate, so I choose to convert the touch data to match the elapsedRealtimeNanos clock.
-
-#### I should expect the min/max timestamp to match for all datatypes.
-
-This is visibly false. Note that I have to remove some of the leading sig figs because the difference occurs in less-significant digits and would otherwise be truncated by R's output.
+You can see the difference in timestamp-system here. I have to remove some of the leading sig figs because the difference occurs in less-significant digits and would otherwise be truncated by R's output.
 
 ```{r}
 accelerometer %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
-# The gyroscope/pressure timestamps are ~identical to the accelerometer timestamps.
-# gyroscope %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
-# pressure %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
+gyroscope %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
+pressure %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
 uncalibrated_touch %>% select(time) %>% mutate(time = time %% 1e+11) %>% summary()
 ```
 
+To perform the conversion, my app also records two data points at the start and at the stop.
 
-<!--Type -1: uptimeMillis at start and at stop, for touch events (2 data points)
-Type -2: elapsedRealtimeNanos at start and at stop, for sensor events (2 data points)-->
+Type -1: uptimeMillis at start and at stop, for touch events (2 data points)
+Type -2: elapsedRealtimeNanos at start and at stop, for sensor events (2 data points)
 
-```{r include=FALSE}
+```{r}
 uptimeMillisStart <- tidbits %>% 
   filter(type == -1) %>% 
   select(time) %>% 
@@ -147,12 +111,9 @@ elapsedRealtimeNanosEnd <- tidbits %>%
   as.double()
 ```
 
-So let's calibrate the touch data. To convert from millis to nanos, the equation is `y = mx+b` where `y` is in nanos, `x` is in millis, `m` is the slope between them (should expect 10^6) and `b` is the y-intercept.
+To convert from millis to nanos, the equation is `y = mx+b` where `y` is in nanos, `x` is in millis, `m` is the slope between them (should expect 10^6) and `b` is the y-intercept.
 
-To perform the conversion, my app also records two data points at the start and at the stop.
-
-
-After calculating, we can confirm the slope using the secant between the start and end points.
+We can confirm the slope using the secant between the start and end points.
 
 ```{r}
 m = (elapsedRealtimeNanosEnd - elapsedRealtimeNanosStart) / (uptimeMillisEnd - uptimeMillisStart)
@@ -160,7 +121,7 @@ m = (elapsedRealtimeNanosEnd - elapsedRealtimeNanosStart) / (uptimeMillisEnd - u
 ```
 The above percent-error is very close to zero.
 
-Then for a point $$(x_1,y_1),$$ I can calculate $$b = y_1 - mx_1.$$ Then we can convert all of the time data for the touch input
+Then for a point $$(x_1,y_1)$$, I can calculate $$b = y_1 - mx_1$$. Then we can convert all of the time data for the touch input
 ```{r}
 b = elapsedRealtimeNanosEnd - m*uptimeMillisEnd
 
@@ -169,13 +130,11 @@ touch <- uncalibrated_touch %>%
 
 touch %>% select(time) %>% mutate(time = time %% 1e+12) %>% summary()
 ```
-That looks better! The touch clock matches the rest of the sensors' clock.
+That looks better!
 
-## Examining the data: Can this really work?
+# Examining the data: Can this really work?
 
-### Graphing documentation
-
-Let 0 and 1 represent the beginning and the end of the touch input. I want a function such that, if I want to graph the middle 50% of the data, I can call the function with parameters start=0.25, end=0.75, and it graphs the proportion of data between those two points.
+Now we're going to graph this data. Let 0 and 1 represent the beginning and the end of the touch input. I want a function such that, if I want to graph the middle 50% of the data, I can call the function with parameters start=0.25, end=0.75, and it graphs the proportion of data between those two points.
 
 
 I have three global variables: the time of `first_touch` and `last_touch`, which correspond to 0 and 1. Their difference is stored in `range`.
@@ -243,9 +202,7 @@ scatterplot <- function(data, value, start, end) {
 ```
 
 
-### So what does the data look like?
-
-Let's look at the gyroscope sensors and the pressure sensor. **Orange vertical lines represent the occurrence of touch input.**
+So what does the data look like? Let's look at the gyroscope sensors and the pressure sensor. **Orange vertical lines represent the occurrence of touch input.**
 
 ```{r}
 scatterplot(pressure, "one", 0.03, 0.15)
@@ -272,16 +229,14 @@ Vertical lines represent touch input. All touch inputs seem to line up with spik
 scatterplot(pressure, "one", 0.03, 0.15)
 ```
 -->
-
-<!--
-#### I don't know how to do peak detection..
+### I don't know how to do peak detection..
 
 ..but here's my best guess.
 
 Visually, it seems like each peak consists of at least two or three high data points. Let's keep track of the last three taps. If all of these taps exceed **some** threshold, then we've found a peak and we can mark it until the data falls below the threshold again.
 
 
-
+<!--
 This method is a start, but it could very naively run into two subsequent increases which are part of the same peak, and declare it to be the same peak.
 
 So then perhaps an increase must be followed by a decrease? Once an increase is observed, it will be recorded as a touch event, but no other increase will be observed until we notice a decrease.
@@ -317,7 +272,7 @@ I pray it will not be jagged. Then a peak will be a simple increase+decrease. I 
 
 While watching after an increase, we will continue watching until a decrease occurs. Then we're over the hill, and we can assume the peak will decrease until it is restored to baseline pressure. We will not wait for baseline pressure, we will simply wait a few samples until the tip of the peak has been climbed and pray baseline pressure has arrived, and further pray that the next tap has not yet occurred. In order for a subsequent tap to occur this quickly, we would very nearly need two fingers touching the display simultaneously. I don't think this will happen.
 -->
-### Denoise the pressure sensor
+### Thankfully, the pressure sensor can be easily denoised
 
 This whole process will be smoother if we can denoise the data (pun intended). Let's start by computing a 5-tap running average to low-pass filter our data. I wrote a function `smoothen_col(data, value, n)` which applies a LPF to a data column via an $n$-tap running average.
 
