@@ -2,7 +2,10 @@
 
 This repository contains data analysis for the Big Brother Barometer project. 
 
-The main contents are found in `analysis.Rmd` and can be viewed at [my GitHub website](https://vermarish.github.io).
+An interactive summary can be found at [my Shiny website](https://vermarish.shinyapps.io/bigBrotherBarometer), and is generated from `viz_app.R`.
+
+The in-depth details can be viewed at [my GitHub website](https://vermarish.github.io), and are found in `analysis.Rmd`.
+
 
 ----
 
