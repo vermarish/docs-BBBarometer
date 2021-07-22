@@ -1,0 +1,709 @@
+---
+title: "Big Brother Barometer"
+author: "Rishabh Verma"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    theme: cerulean
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+setwd("E:\\Desktop\\docs-BBBarometer")
+```
+
+# Introduction
+
+My phone has a gyroscope and a barometer, which respectively measure rotational velocity and air pressure. This paper centers around the phenomenon that when I touch the screen, the barometer registers a spike in air pressure, likely because the force of my finger causes a volume deflection inside the phone. The gyroscope is susceptible to recording tremors in the hand holding the phone, but if the barometer can indicate WHEN touch input occurs, the gyroscope can indicate WHERE on the screen the touch input occurs. This could be applied to create a malicious background process which can read a user's PIN code with access only to barometer and gyroscope sensor data. This report is a work in progress.
+
+# Experiment 1
+
+```{r include=FALSE}
+tidbits <- read_csv("data/experiment_1.csv")
+```
+
+
+
+Type 1: accelerometer data (includes x/y/z)  
+Type 4: gyroscope data (includes x/y/z)  
+Type 6: pressure data  
+Type -27: touch data  
+
+Type -1: uptimeMillisecond clock
+Type -2: elapsedRealtimeNanos clock
+Type -3: i don't remember, but it's prob not important
+
+```{r functions for cleaning, include=FALSE}
+
+type_map <- function(type) {
+  if (type == -27) {
+    return("touch")
+  } else if (type == 1) {
+    return("accelerometer")
+  } else if (type == 4) {
+    return("gyroscope")
+  } else if (type == 6) {
+    return("pressure")
+  } else {
+    return("unknown")
+  }
+}
+
+clean_tidbits <- function(tidbits) {
+  ## Get the clocking tidbits
+  clocking <- tidbits %>%
+    filter(type == -1 | type == -2)
+  
+  uptimeMillis <- clocking %>%
+    filter(type == -1) %>%
+    select(time)
+  
+  elapsedRealtimeNanos <- clocking %>%
+    filter(type == -2) %>%
+    select(time)
+  
+  uptimeMillisStart = min(uptimeMillis)
+  uptimeMillisEnd = max(uptimeMillis)
+  elapsedRealtimeNanosStart = min(elapsedRealtimeNanos)
+  elapsedRealtimeNanosEnd = max(elapsedRealtimeNanos)
+  
+  ## Select the data tidbits
+  tidbits <- tidbits %>% 
+    filter(type == -27 | type > 0)
+  
+  calibrated <- tidbits %>%
+    filter(type != -27)
+  
+  # Calibrate the touch-data tidbits
+  m = (elapsedRealtimeNanosEnd - elapsedRealtimeNanosStart) / (uptimeMillisEnd - uptimeMillisStart)
+  b = elapsedRealtimeNanosEnd - m*uptimeMillisEnd
+  
+  uncalibrated <- tidbits %>%
+    filter(type == -27) %>%
+    mutate(time = m*time + b)
+  
+  ## Combine results and re-format type as string
+  tidbits <- bind_rows(calibrated, uncalibrated) %>%
+    mutate(type = sapply(type, type_map)) %>%
+    arrange(time)
+  
+  return(tidbits)
+}
+```
+
+```{r functions for viewing}
+data <- clean_tidbits(tidbits)
+
+first_touch = data %>%
+  filter(type=="touch") %>%
+  select(time) %>%
+  min %>%
+  as.double
+
+last_touch = data %>% 
+  filter(type=="touch") %>%
+  select(time) %>%
+  max %>%
+  as.double
+
+range = last_touch - first_touch
+
+## 0 <= start < end <= 1
+trim <- function(data, start, end) {
+  open = range*start + first_touch
+  close = range*end + first_touch
+  
+  return(data %>%
+           filter(time > open & time < close))
+}
+
+# col = {'one', 'two', 'three'}
+scatterplot <- function(data, sensor_type, col, start, end) {
+  graph <- data %>%
+    filter(type==sensor_type) %>%
+    select(time, col) %>%
+    trim(start, end) %>%
+    ggplot(aes_string(x="time", y=col))
+  
+  graph <- graph + geom_line(colour = "#2222AA") + geom_point(colour = "#2222AA") + scale_y_continuous()
+  
+  # add title and subtitle
+  duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
+  title <- paste(sensor_type, col)
+  graph <- graph + 
+    ylab(title) + 
+    ggtitle(label=title,
+            subtitle=paste("Data captured across", duration, "seconds."))
+  
+  taps <- data %>%
+    filter(type=="touch") %>% 
+    trim(start, end)
+  tap_times <- taps$time
+  
+  
+  
+  for (tap_time in tap_times) {
+    graph <- graph + geom_vline(xintercept = tap_time, colour= "#EE9955", size=1)
+  }
+  
+  return(graph)
+}
+
+scatterplot(data, "pressure", "one", 0.4, 0.5)
+```
+
+
+Now to detect touch occurrence. I could do something dumb and threshold the pressure data, or I could do something clever and train a model. Perhaps I keep a buffer of the last four pressure readings, or simply the last four changes in pressure reading. This will be tuple of 4 predictors. To form a training dataset, I need responses; perhaps the four-tuple nearest in time
+
+                 |                              |     
+. . . . . x x x x|. . .        . . . . . . . . .|x x x x . .
+                 |                              |     
+nearest in time before            nearest in time after
+   (unviable)                            (viable)
+
+can be categorized as 1, and all other four-tuples (excepting maybe the neighboring ones) can be categorized as 0.
+
+After training a binary classifier (logit distribution), we then threshold on the logit probability. 
+
+---
+
+Before I mine the first derivative as my feature, why don't I modify my scatterplot function to show that derivative.
+```{r}
+scatterplot_d <- function(data, sensor_type, col, start, end) {
+
+  # compute the derivative of the specified column
+  col_index <- which(names(data) == col)
+  
+  sensor_data <- data %>%
+    filter(type == sensor_type)
+  
+  col_vals <- sensor_data[col_index]
+  
+  left <- col_vals %>% 
+    slice(1:(nrow(col_vals)-1))
+  right <- col_vals %>% 
+    slice(2:(nrow(col_vals)))
+  
+  deriv <- (right - left) %>%
+    select(deriv = one)
+  
+  # bind this as a new column
+  sensor_data <- sensor_data %>%
+    slice(2:nrow(sensor_data)) %>%
+    bind_cols(deriv)
+  
+  # add the rows for touch entries back in
+  touch_data <- data %>%
+    filter(type=="touch") %>%
+    mutate(deriv = NA)
+  
+  treated_data <- bind_rows(sensor_data, touch_data)
+  
+  scatterplot(data=treated_data, 
+              sensor_type=sensor_type,
+              col="deriv",
+              start=start,
+              end=end)
+}
+
+scatterplot_d(data, "pressure", "one", 0.5, 0.55) +
+  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
+
+```
+
+It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as 
+
+Okay so let's do it. Let's use the first 60\% of the data as training data, and the last 40\% as testing data. With 161 data points in experiment 1, this is 112 data points in training and 48 data points in testing.
+
+```{r}
+prop = 0.6  # proportion of training data
+window = 5
+buffer = window + 2
+
+
+## Portion data into train and test
+touch_data <- data %>% 
+  filter(type=="touch") %>%
+  arrange(time)
+
+cutoff <- touch_data$time[as.integer(nrow(touch_data)*prop)]
+
+train <- data %>%
+  filter(time < cutoff) %>%
+  filter(type %in% c("pressure", "touch")) %>%
+  arrange(time)
+
+
+## Next we build train_df
+# iterate through list
+# if i is pressure and i+1 is touch, then get i+2:i+5 and label 1
+# if i is touch, then get i+2:i+5 and label 1, then double iterate
+# if i is pressure and i+1 is pressure, then get i+2:i+5 and label 0
+
+
+# init empty dataframe with window-1 columns for derivatives and one column for labels
+train_df <- data.frame(matrix(rep(NA,window), nrow=1))
+train_df <- na.omit(train_df)
+colnames(train_df)[ncol(train_df)] = "label"
+
+
+vector_derivative <- function (v) {
+  right <- v[2:length(v)]
+  left <- v[1:(length(v)-1)]
+  return(right-left)
+}
+
+
+i = 1
+while (i < nrow(train) - buffer - 2) {
+  # get the subsequent entries as a vector
+  event <- train %>%
+    slice(i:(i+buffer))
+  
+  pressure_reading <- event %>%
+    filter(type == "pressure") %>%
+    tail(n=window) %>%
+    .$one
+  
+  types <- event$type
+  
+  phase <- which(types == "touch")
+  label = 0
+  if (length(phase) == 1) {  # if there is an identifiable touch event
+    if (phase == buffer) {  # 
+      i = i + 1
+      next  # skip this iteration
+    }
+    
+    if (phase == 1 ) {
+      label = 1
+    } else if (phase == 2) {
+      label = 1
+    }
+  }
+  
+  
+  train_df[nrow(train_df)+1,] = c(vector_derivative(pressure_reading), label)
+  i = i + 1
+}
+```
+
+The training dataframe has been built. Let's try doing some visualization to make sense of this
+```{r}
+train_df %>% 
+  ggplot() +
+  geom_point(aes(x=X2, y=X3, colour=factor(label)),
+             alpha=0.5)
+
+train_df_pca <- prcomp(~ X1 + X2 + X3, 
+                       data=train_df)
+
+features <- bind_cols(train_df_pca$x,
+                      train_df$label)
+
+train_df$id = 1:nrow(train_df)
+train_df_long <- pivot_longer(data=train_df, 
+                              cols=c(X1, X2, X3, X4))
+
+train_df_long %>% 
+  ggplot() +
+  geom_line(aes(x=factor(name), 
+                y=value, 
+                group=id, 
+                colour=factor(label)),
+            alpha=0.5)
+```
+
+I guess it seems separable. Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
+
+```{r}
+touch_model <- glm(label ~ X1 + X2 + X3 + X4, 
+                   data=train_df,
+                   family = "binomial")
+
+result <- bind_cols(train %>% 
+                      filter(type == "pressure") %>% 
+                      slice((buffer):(buffer+nrow(train_df))),
+                    touch_model$fitted.values) %>%
+  rename(p = ...6)
+
+
+# Plotting two vertical scales derived from
+#   https://stackoverflow.com/a/51844068/9616058
+scatterplot(data, "pressure", "one", 0.3, 0.4) +
+  geom_line(data=result %>% trim(0.3,0.4),
+            aes(y= p*diff(range(one)) + min(one)),
+            colour="red") +
+  ggtitle("The pressure sensor can detect input later")
+
+
+scaleFactor <- max(result$one) / max()
+
+
+a = 0.5
+b = 0.7
+scatterplot(data, "pressure", "one", a, b)
+
+scatterplot(data, "pressure", "one", a, b) +
+  geom_line(data=result %>% trim(a,b),
+            aes(y= p*diff(range(one)) + min(one)),
+            colour="red") +
+  ggtitle("The pressure sensor can detect input later")
+```
+
+There's a delay of about 6 samples from the top of the spike in the p-values and the occurrence of touch input. The accelerometer deviation happens within these 6 samples.
+
+```{r}
+sample_period <- data %>%
+  filter(type=="pressure") %>%
+  .$time %>%
+  diff() %>%
+  mean()
+
+a = 0.35
+b = 0.45
+
+scatterplot(data, "pressure", "one", a, b) +
+  geom_line(data=result %>% trim(a,b),
+            aes(y= p*diff(range(one)) + min(one)),
+            colour="red") +
+  ggtitle("The pressure sensor can detect input later")
+```
+
+
+```{r}
+a = 0.35
+b = 0.45
+
+shift <- 6
+
+result_shifted <- result
+result_shifted$p <- c(
+  result_shifted$p[(shift+1):nrow(result_shifted)],
+  rep(0, shift)
+)
+
+scatterplot(data, "pressure", "one", a, b) +
+  geom_line(data=result_shifted %>% trim(a,b),
+            aes(y= p*diff(range(one)) + min(one)),
+            colour="red") +
+  ggtitle("The pressure sensor can detect input later")
+
+```
+
+
+.
+.
+TODO compute touch occurrence from pressure data.
+.
+.
+
+Now to carry out the experiments for location of touch input. 
+
+
+
+
+## Pre-conditions not enforced:
+## value = {'one', 'two', 'three', 'one_smooth', 'two_smooth', 'three_smooth'}
+## 0 <= start < end <= 1
+scatterplot <- function(data, value, start, end) {   
+  # Use start/end to find a proportion of the touch input. Then find all sensor data within.
+  # (Decided because multiple sensors are used, but there is only one touch dataset)
+  
+  # plot data
+  graph <- data %>%
+    trim(start, end) %>%
+    ggplot(aes_string(x="time", y=value))
+  graph <- graph + geom_line(colour = "#2222AA") + geom_point(colour = "#2222AA") + scale_y_continuous()
+  
+  # add title
+  duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
+  
+  data_type <- data$type %>% 
+    unique()
+  
+  graph <- graph + 
+    ylab(data$type[1]) + 
+    ggtitle(label=data$type[1],
+            subtitle=paste("Data captured across", duration, "seconds."))
+  
+  # plot touch input
+  taps <- touch %>% trim(start, end)
+  
+  for (i in 1:as.integer(count(taps))) {
+    time <- slice(taps, i)[1] %>% as.double()
+    graph <- graph + geom_vline(xintercept = time, colour = "#EE9955")
+  }
+  return(graph)
+}
+```
+
+
+So what does the data look like? Let's look at the gyroscope sensors and the pressure sensor. **Orange vertical lines represent the occurrence of touch input.**
+
+```{r}
+scatterplot(pressure, "one", 0.03, 0.15)
+scatterplot(gyroscope, "one", 0.03, 0.15)
+scatterplot(gyroscope, "two", 0.03, 0.15)
+scatterplot(gyroscope, "three", 0.03, 0.15)
+```
+
+
+Each touch input is accompanied by a spike in the gyroscope data. The direction of this spike on the three axes may be indicative of which way the device rotates while the user taps the screen, which we MIGHT be able to use to determine touch location. The problem with this data is that there are some gyroscope spikes which don't match the touch data as the user shifts the phone in their hand between taps.
+
+The pressure data provides us with a way around this. There is a strong one-to-one relation between pressure spikes and touch events. A touch event occurs just before a pressure spike. This makes sense when your finger pushes a button, the touchscreen detects your finger before your finger makes firm contact with the screen.
+
+
+So let's start by using peaks in the pressure data to identify the occurrence of touch input.
+
+<!--
+Hold a phone in your hands horizontally. Consider pitch/yaw/roll from this orientation.
+
+Vertical lines represent touch input. All touch inputs seem to line up with spikes in the gyro data, but spikes in the gyro data do NOT correspond with touch inputs. As such, we must use the pressure sensor to detect when a touch input occurs. Dataset one seems the most clean (I hypothesize this axis is pitch, because the passcode keyboard is towards the bottom of the screen. because I would expect pitch to vary most with device inputs on the bottom of the screen.)
+
+
+```{r}
+scatterplot(pressure, "one", 0.03, 0.15)
+```
+
+### I don't know how to do peak detection..
+
+..but here's my best guess.
+
+Visually, it seems like each peak consists of at least two or three high data points. Let's keep track of the last three taps. If all of these taps exceed **some** threshold, then we've found a peak and we can mark it until the data falls below the threshold again.
+
+
+
+This method is a start, but it could very naively run into two subsequent increases which are part of the same peak, and declare it to be the same peak.
+
+So then perhaps an increase must be followed by a decrease? Once an increase is observed, it will be recorded as a touch event, but no other increase will be observed until we notice a decrease.
+
+How do we notice a decrease? Let's say we first observe an increase. Then we go into watching mode. The function will continue to monotonically increase until it doesn't. I will assume that the pressure will go down from here. The negation of this assumption is that the pressure is jagged.
+  
+
+```{}
+
+         /\
+        /  \
+       /    \
+      /      \
+     /    
+-----
+non-jagged assumption
+```
+
+```{}
+              /\    
+             /  \   
+        /\  /    \  
+       /  \/      \ 
+      /            \
+     /              \
+-----
+
+   jagged counterexample
+```     
+
+
+I pray it will not be jagged. Then a peak will be a simple increase+decrease. I think this assumption is sound for non-trickery touch input.
+
+While watching after an increase, we will continue watching until a decrease occurs. Then we're over the hill, and we can assume the peak will decrease until it is restored to baseline pressure. We will not wait for baseline pressure, we will simply wait a few samples until the tip of the peak has been climbed and pray baseline pressure has arrived, and further pray that the next tap has not yet occurred. In order for a subsequent tap to occur this quickly, we would very nearly need two fingers touching the display simultaneously. I don't think this will happen.
+
+### Thankfully, the pressure sensor can be easily denoised
+
+This whole process will be smoother if we can denoise the data (pun intended). Let's start by computing a 5-tap running average to low-pass filter our data. I wrote a function `smoothen_col(data, value, n)` which applies a LPF to a data column via an $n$-tap running average.
+
+
+
+```{r include=FALSE}
+library(stats)
+```
+
+```{r include=FALSE}
+## n: number of filter taps for running average.
+smoothen_col <- function(data, value, n) {
+  
+  column <- switch (value, 
+          "one" = data %>% select(one),
+          "two" = data %>% select(two),
+          "three" = data %>% select(three)
+          ) %>% 
+    unlist() %>%
+    as.numeric()
+  
+  coeffs <- rep(1/n,n)
+  
+  column <- stats::filter(column, coeffs) %>% as_tibble()
+  column <- switch(value,
+                   "one" = column %>% select(one_smooth = x),
+                   "two" = column %>% select(two_smooth = x),
+                   "three" = column %>% select(three_smooth = x)
+                   )
+  
+  return(bind_cols(data, column))
+}
+
+smoothen_all <- function(data, p) {
+  
+}
+```
+
+
+```{r}
+scatterplot(pressure, "one", 0.03, 0.15)
+
+smooth_pressure <- smoothen_col(pressure, "one", 5)
+scatterplot(smooth_pressure, "one_smooth", 0.03, 0.15) + geom_hline(yintercept = 992.2594)
+
+```
+
+A 5-tap moving average looks pretty good. I've plotted the mean as a horizontal black line, and it's... okay? It sits at 992.2594, which seems alright for this narrow data window densely filled with touch inputs, but the mean will only be lower when considering data with sparse touch inputs, which is unfortunate. I don't think the mean will be a useful threshold in an actual application.
+
+What if I do something really crazy? What if I use a running average to keep track of the midline?
+
+If peaks are sparse, the running average will be closer to base pressure. The occasional peak will ensure that it stays a bit higher than that.
+
+If peaks are frequent, the running average will be a bit higher, but probably not too high. They'd be right around midline assuming fantastic sinusoidal oscillation.
+
+So a simple arithmetic mean has the problem that it might be too low in the case of sparse data? Then we need a mean that weights higher terms more heavily. A geometric mean would be counterintuitive, because GM <= AM. We want something greater than AM. Least squares?
+
+Eh, let's just try arithmetic mean for now and see what happens.
+
+Given a start/end proportion, we'll compute a window in time. Then we look at the pressure data, smoothen the data, and find the average on this window. For a peak beginning, we take the naive approach; "when does the function rise above the threshold?"
+
+ This function is in progress.
+```{r}
+## data: from pressure sensor. cols = [time | one]
+## 0 <= start < end <= 1
+draw_input <- function(data, start, end) {
+  # Smooth factor (# of taps in running-average LPF)
+  n = 4
+  
+  smooth_pressure <- smoothen_col(data, "one", n)
+  
+  
+}
+
+draw_input(pressure, 0.02, 0.15)
+```
+
+
+
+
+
+
+
+
+
+
+### What if I try some wavelet denoising for the gyroscope data?
+
+
+
+Let's try a low-pass filter, see if that does the trick.
+
+```{r}
+library(seewave)
+```
+
+```{r}
+smooth_data <- gyroscope %>% 
+  select(one) %>% 
+  unlist() %>% 
+  as.numeric()
+  
+freq = 1
+
+one_smooth <- fir(smooth_data, f=freq, to=0.2) %>% as_tibble() %>% select(smoothed = V1)
+
+one_smooth <- bind_cols(gyroscope, one_smooth)
+
+graph <- one_smooth %>% 
+  ggplot() +
+  geom_point(aes(x = time, y = smoothed, color = "raw")) +
+  geom_point(aes(x = time, y = one, color = "LPF"))
+
+
+```
+
+
+A low-pass filter seems like it can cut the noise, but it cuts too much of the signal as well, and the peaks have become less apparent.
+
+https://www.rdocumentation.org/packages/rwt/versions/1.0.0/topics/denoise
+
+```{r}
+library(rwt)
+```
+
+
+
+We're going to try wavelet denoising. This requires a power of 2 for the sample size.
+```{r}
+samples = 2^(floor(log2(count(gyroscope)))) %>% as.integer()
+gyroscope <- gyroscope %>% slice(1:samples)
+
+smooth_data <- gyroscope %>% 
+  select(one) %>% 
+  unlist() %>%
+  unname()
+  
+h <- daubcqf(4)  # must be even
+
+one_smooth <- denoise.dwt(smooth_data, h$h.0)[1] %>% as_tibble() %>% select(smoothed = xd)
+
+one_smooth <- bind_cols(gyroscope, one_smooth)
+
+graph <- one_smooth %>% 
+  ggplot() +
+  geom_point(aes(x = time, y = smoothed, color = "raw")) +
+  geom_point(aes(x = time, y = one, color = "LPF"))
+
+
+taps = dim(touch)[1]
+
+for (i in 1:taps) {
+  time <- slice(touch, i)[1] %>% as.double()
+  graph <- graph + geom_vline(xintercept = time)
+}
+
+graph
+```
+
+```{r}
+sig <- makesig(SIGNAL.DOPPLER)
+h <- daubcqf(6)
+ret.dwt <- denoise.dwt(sig$x, h$h.0)
+```
+
+```{r}
+sig <- makesig(SIGNAL.LIN.CHIRP, 8)
+h <- daubcqf(4)
+L <- 2
+ret.mdwt <- mdwt(sig$x, h$h.0, L)
+```
+
+
+
+```{r}
+one_smooth <- fir(smooth_data, f=freq, to=0.2) %>% as_tibble() %>% select(smoothed = V1)
+
+one_smooth <- bind_cols(gyroscope, one_smooth)
+
+graph <- one_smooth %>% 
+  ggplot() +
+  geom_point(aes(x = time, y = smoothed, color = "raw")) +
+  geom_point(aes(x = time, y = one, color = "LPF"))
+
+
+taps = dim(touch)[1]
+
+for (i in 1:taps) {
+  time <- slice(touch, i)[1] %>% as.double()
+  graph <- graph + geom_vline(xintercept = time)
+}
+
+graph
+```
+-->

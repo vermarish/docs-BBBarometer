@@ -1,0 +1,7 @@
+experiment_1
+	holding the phone in both hands, tap left and right. can i perceive motion on one axis?
+	data collected over 1 minute
+
+holding the phone in one hand, tap center and bottom. are there pressure differences? motion differences?
+
+holding the phone in one hand, tap everywhere reachable (quarter circle). can i solve 
