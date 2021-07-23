@@ -3,6 +3,6 @@
 .RData
 .Ruserdata
 *.Rproj
-data/*.csv
+# data/*.csv
 *.log
 *.synctex.gz
