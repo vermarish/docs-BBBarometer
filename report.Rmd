@@ -11,7 +11,11 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
-setwd("E:\\Desktop\\docs-BBBarometer")
+## Filepath on my desktop
+# setwd("E:\\Desktop\\docs-BBBarometer")
+
+## Filepath on my laptop
+setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
 ```
 
 # Introduction
