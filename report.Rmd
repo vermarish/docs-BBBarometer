@@ -248,6 +248,36 @@ test <- data %>%
 # input: a dataframe containing pressure_data in a column
 # We will get a dataframe with 4-columns for each entry in an observation,
 # and a 5th column for the label
+
+build_df_2 <- function(pressure_data, width) {
+  window = width + 1
+  
+  df <- data.frame(matrix(rep(NA,window), nrow=1))
+  df <- na.omit(df)
+  colnames(df)[ncol(df)] = "label"
+  
+  i = 1
+  while (i < nrow(pressure_data) - window) {
+    event <- pressure_data %>%
+      slice(i:(i+width+1))
+    
+    pressure_reading <- event %>%
+      filter(type == "pressure") %>%
+      head(n=window) %>%
+      .$one
+    
+    
+    if (event$type[1] == "touch") {
+      print("skipping")
+    } else {
+      print(pressure_reading)
+    }
+    
+    i = i + 1
+  }
+}
+
+
 build_df <- function(pressure_data, width) {
 {
   window = width + 1 # calculating first derivative requires an extra point
@@ -306,7 +336,8 @@ one = c(1,2,4,7,11,
         -1,-2,-4,-7,-11)
 foobar = data.frame(type=types, one=one)
 
-build_df(foobar, width=3)
+df_result <- build_df(foobar, width=3)
+print(df_result)
 ```
 
 
