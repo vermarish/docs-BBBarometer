@@ -12,10 +12,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 ## Filepath on my desktop
-# setwd("E:\\Desktop\\docs-BBBarometer")
+setwd("E:\\Desktop\\docs-BBBarometer")
 
 ## Filepath on my laptop
-setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
+# setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
 ```
 
 # Introduction
@@ -155,7 +155,7 @@ scatterplot <- function(data, sensor_type, col, start, end) {
   return(graph)
 }
 
-scatterplot(data, "pressure", "one", 0.4, 0.5)
+#scatterplot(data, "pressure", "one", 0.4, 0.5)
 ```
 
 
@@ -212,8 +212,8 @@ scatterplot_d <- function(data, sensor_type, col, start, end) {
               end=end)
 }
 
-scatterplot_d(data, "pressure", "one", 0.5, 0.55) +
-  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
+#scatterplot_d(data, "pressure", "one", 0.5, 0.55) +
+#  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
 
 ```
 
@@ -223,8 +223,7 @@ Okay so let's do it. Let's use the first 60\% of the data as training data, and 
 
 ```{r}
 prop = 0.6  # proportion of training data
-window = 5
-buffer = window + 2
+
 
 
 ## Portion data into train and test
@@ -239,164 +238,227 @@ train <- data %>%
   filter(type %in% c("pressure", "touch")) %>%
   arrange(time)
 
+test <- data %>%
+  filter(time > cutoff) %>%
+  filter(type %in% c("pressure", "touch")) %>%
+  arrange(time)
+
 
 ## Next we build train_df
-# iterate through list
-# if i is pressure and i+1 is touch, then get i+2:i+5 and label 1
-# if i is touch, then get i+2:i+5 and label 1, then double iterate
-# if i is pressure and i+1 is pressure, then get i+2:i+5 and label 0
-
-
-# init empty dataframe with window-1 columns for derivatives and one column for labels
-train_df <- data.frame(matrix(rep(NA,window), nrow=1))
-train_df <- na.omit(train_df)
-colnames(train_df)[ncol(train_df)] = "label"
-
-
-vector_derivative <- function (v) {
-  right <- v[2:length(v)]
-  left <- v[1:(length(v)-1)]
-  return(right-left)
-}
-
-
-i = 1
-while (i < nrow(train) - buffer - 2) {
-  # get the subsequent entries as a vector
-  event <- train %>%
-    slice(i:(i+buffer))
+# input: a dataframe containing pressure_data in a column
+# We will get a dataframe with 4-columns for each entry in an observation,
+# and a 5th column for the label
+build_df <- function(pressure_data, width) {
+{
+  window = width + 1 # calculating first derivative requires an extra point
   
-  pressure_reading <- event %>%
-    filter(type == "pressure") %>%
-    tail(n=window) %>%
-    .$one
+  df <- data.frame(matrix(rep(NA,window), nrow=1))
+  df <- na.omit(df)
+  colnames(df)[ncol(df)] = "label"
   
-  types <- event$type
-  
-  phase <- which(types == "touch")
-  label = 0
-  if (length(phase) == 1) {  # if there is an identifiable touch event
-    if (phase == buffer) {  # 
-      i = i + 1
-      next  # skip this iteration
+  # iterate through list
+  # if i is pressure and i+1 is touch, then get i+2:i+5 and label 1
+  # if i is touch, then get i+2:i+5 and label 1, then double iterate
+  # if i is pressure and i+1 is pressure, then get i+2:i+5 and label 0
+  i = 1
+  while (i < nrow(pressure_data) - window) {
+    ## get the subsequent entries as a vector
+    event <- pressure_data %>%
+      slice(i:(i+window))
+    pressure_reading <- event %>%
+      filter(type == "pressure") %>%
+      head(n=window) %>%
+      .$one
+    
+    types <- event$type
+    
+    phase <- which(types == "touch")
+    label = 0
+    if (length(phase) == 1) {  # if there is an identifiable touch event
+      if (phase == buffer) {  # 
+        i = i + 1
+        next  # skip this iteration
+      }
+      
+      if (phase == 1 ) {
+        label = 1
+      } else if (phase == 2) {
+        label = 1
+      }
     }
     
-    if (phase == 1 ) {
-      label = 1
-    } else if (phase == 2) {
-      label = 1
-    }
+    df[nrow(df)+1,] = c(diff(pressure_reading), label)
+    i = i + 1
+    print(df)
   }
-  
-  
-  train_df[nrow(train_df)+1,] = c(vector_derivative(pressure_reading), label)
-  i = i + 1
+}
+  return(df)
 }
 ```
 
-The training dataframe has been built. Let's try doing some visualization to make sense of this
+I should double-check that this labels the data correctly
 ```{r}
-train_df %>% 
-  ggplot() +
-  geom_point(aes(x=X2, y=X3, colour=factor(label)),
-             alpha=0.5)
+types = c(rep("pressure",5), 
+          "touch",
+          rep("pressure",5))
+one = c(1,2,4,7,11,
+        100,
+        -1,-2,-4,-7,-11)
+foobar = data.frame(type=types, one=one)
 
-train_df_pca <- prcomp(~ X1 + X2 + X3, 
-                       data=train_df)
-
-features <- bind_cols(train_df_pca$x,
-                      train_df$label)
-
-train_df$id = 1:nrow(train_df)
-train_df_long <- pivot_longer(data=train_df, 
-                              cols=c(X1, X2, X3, X4))
-
-train_df_long %>% 
-  ggplot() +
-  geom_line(aes(x=factor(name), 
-                y=value, 
-                group=id, 
-                colour=factor(label)),
-            alpha=0.5)
+build_df(foobar, width=3)
 ```
 
-I guess it seems separable. Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
+
+Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
+
+Really, the first question is how many data points does it take to figure out pressure input?
 
 ```{r}
+train_df <- build_df(train, width=4)
+touch_model <- glm(label ~ .,
+                   data=train_df,
+                   family="binomial")
+
+scatterplot_d(data, "pressure", "one", 0.0, 0.05) +
+  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
+
+```
+
+
+```{r}
+train_pressure_model <- function(train, test) {
+  
+  ## Arrange the data
+  train_df <- build_df(train, width=4)
+  test_df <- build_df(test, width=4)
+  
+  ## Fit the model
+  touch_model <- glm(label ~ X1 + X2 + X3 + X4 + X5 + X6 + X7, 
+                     data=train_df,
+                     family = "binomial")
+  
+  ## Handle the values fitted in training
+  # Store the fitted values
+  result_training <- bind_cols(train %>% 
+                        filter(type == "pressure") %>% 
+                        slice((buffer):(buffer+nrow(train_df))),
+                      touch_model$fitted.values) %>%
+    rename(p = ...6)
+  
+  # Shift the fitted values
+  shift <- 6
+  result_training_shifted <- result_training
+  result_training_shifted$p <- c(
+    result_training_shifted$p[(shift+1):nrow(result_training_shifted)],
+    rep(0, shift)
+  )
+  
+  ## Handle the values predicted in testing
+  # Compute the predicted values
+  output <- predict(touch_model, 
+          newdata=test_df)
+  fitted.values <- 1/(1+exp(-1*(output)))
+  
+  # Store the predicted values
+  result_testing <- bind_cols(test %>% 
+                        filter(type == "pressure") %>% 
+                        slice((buffer):(buffer+nrow(test_df)-1)),
+                      fitted.values) %>%
+    rename(p = ...6)
+  
+  # Shift the fitted
+  result_testing_shifted <- result_testing
+  result_testing_shifted$p <- c(
+    result_testing_shifted$p[(shift+1):nrow(result_testing_shifted)],
+    rep(0, shift)
+  )
+}
+
+
+```
+
+```{r}
+
+## Build a model on the first 60% as training data
 touch_model <- glm(label ~ X1 + X2 + X3 + X4, 
                    data=train_df,
                    family = "binomial")
 
-result <- bind_cols(train %>% 
+result_training <- bind_cols(train %>% 
                       filter(type == "pressure") %>% 
                       slice((buffer):(buffer+nrow(train_df))),
                     touch_model$fitted.values) %>%
   rename(p = ...6)
 
 
-# Plotting two vertical scales derived from
-#   https://stackoverflow.com/a/51844068/9616058
-scatterplot(data, "pressure", "one", 0.3, 0.4) +
-  geom_line(data=result %>% trim(0.3,0.4),
-            aes(y= p*diff(range(one)) + min(one)),
-            colour="red") +
-  ggtitle("The pressure sensor can detect input later")
+## Plotting two vertical scales derived from
+##   https://stackoverflow.com/a/51844068/9616058
+#a = 0.3
+#b = 0.4
+
+#scatterplot(data, "pressure", "one", a, b) +
+#  geom_line(data=result_training %>% trim(a,b),
+#            aes(y= p*diff(range(one)) + min(one)),
+#            colour="red") +
+#  ggtitle("The pressure sensor can detect input later")
 
 
-scaleFactor <- max(result$one) / max()
-
-
-a = 0.5
-b = 0.7
-scatterplot(data, "pressure", "one", a, b)
-
-scatterplot(data, "pressure", "one", a, b) +
-  geom_line(data=result %>% trim(a,b),
-            aes(y= p*diff(range(one)) + min(one)),
-            colour="red") +
-  ggtitle("The pressure sensor can detect input later")
-```
-
-There's a delay of about 6 samples from the top of the spike in the p-values and the occurrence of touch input. The accelerometer deviation happens within these 6 samples.
-
-```{r}
-sample_period <- data %>%
-  filter(type=="pressure") %>%
-  .$time %>%
-  diff() %>%
-  mean()
-
-a = 0.35
-b = 0.45
-
-scatterplot(data, "pressure", "one", a, b) +
-  geom_line(data=result %>% trim(a,b),
-            aes(y= p*diff(range(one)) + min(one)),
-            colour="red") +
-  ggtitle("The pressure sensor can detect input later")
-```
-
-
-```{r}
 a = 0.35
 b = 0.45
 
 shift <- 6
 
-result_shifted <- result
-result_shifted$p <- c(
-  result_shifted$p[(shift+1):nrow(result_shifted)],
+result_training_shifted <- result_training
+result_training_shifted$p <- c(
+  result_training_shifted$p[(shift+1):nrow(result_training_shifted)],
   rep(0, shift)
 )
 
 scatterplot(data, "pressure", "one", a, b) +
-  geom_line(data=result_shifted %>% trim(a,b),
+  geom_line(data=result_training_shifted %>% trim(a,b),
             aes(y= p*diff(range(one)) + min(one)),
             colour="red") +
-  ggtitle("The pressure sensor can detect input later")
-
+  ggtitle("We can detect touch input 6 samples later")
 ```
 
+Now I've confirmed that it works well on the training data. Let's check the testing data.
+```{r}
+touch_model <- glm(label ~ X1 + X2 + X3 + X4, 
+                   data=train_df,
+                   family = "binomial")
+
+output <- predict(touch_model, 
+        newdata=test_df)
+
+fitted.values <- 1/(1+exp(-1*(output)))
+
+result_testing <- bind_cols(test %>% 
+                      filter(type == "pressure") %>% 
+                      slice((buffer):(buffer+nrow(test_df)-1)),
+                    fitted.values) %>%
+  rename(p = ...6)
+
+
+result_testing_shifted <- result_testing
+result_testing_shifted$p <- c(
+  result_testing_shifted$p[(shift+1):nrow(result_testing_shifted)],
+  rep(0, shift)
+)
+
+a <- 0.55
+b <- 0.65
+
+scatterplot(data, "pressure", "one", a, b) +
+  geom_line(data=result_testing_shifted %>% trim(a,b),
+            aes(y= p*diff(range(one)) + min(one)),
+            colour="red") +
+  ggtitle("So we have to work 6 samples in the future")
+```
+
+```{r}
+
+```
 
 .
 .
@@ -408,71 +470,6 @@ Now to carry out the experiments for location of touch input.
 
 
 
-
-## Pre-conditions not enforced:
-## value = {'one', 'two', 'three', 'one_smooth', 'two_smooth', 'three_smooth'}
-## 0 <= start < end <= 1
-scatterplot <- function(data, value, start, end) {   
-  # Use start/end to find a proportion of the touch input. Then find all sensor data within.
-  # (Decided because multiple sensors are used, but there is only one touch dataset)
-  
-  # plot data
-  graph <- data %>%
-    trim(start, end) %>%
-    ggplot(aes_string(x="time", y=value))
-  graph <- graph + geom_line(colour = "#2222AA") + geom_point(colour = "#2222AA") + scale_y_continuous()
-  
-  # add title
-  duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
-  
-  data_type <- data$type %>% 
-    unique()
-  
-  graph <- graph + 
-    ylab(data$type[1]) + 
-    ggtitle(label=data$type[1],
-            subtitle=paste("Data captured across", duration, "seconds."))
-  
-  # plot touch input
-  taps <- touch %>% trim(start, end)
-  
-  for (i in 1:as.integer(count(taps))) {
-    time <- slice(taps, i)[1] %>% as.double()
-    graph <- graph + geom_vline(xintercept = time, colour = "#EE9955")
-  }
-  return(graph)
-}
-```
-
-
-So what does the data look like? Let's look at the gyroscope sensors and the pressure sensor. **Orange vertical lines represent the occurrence of touch input.**
-
-```{r}
-scatterplot(pressure, "one", 0.03, 0.15)
-scatterplot(gyroscope, "one", 0.03, 0.15)
-scatterplot(gyroscope, "two", 0.03, 0.15)
-scatterplot(gyroscope, "three", 0.03, 0.15)
-```
-
-
-Each touch input is accompanied by a spike in the gyroscope data. The direction of this spike on the three axes may be indicative of which way the device rotates while the user taps the screen, which we MIGHT be able to use to determine touch location. The problem with this data is that there are some gyroscope spikes which don't match the touch data as the user shifts the phone in their hand between taps.
-
-The pressure data provides us with a way around this. There is a strong one-to-one relation between pressure spikes and touch events. A touch event occurs just before a pressure spike. This makes sense when your finger pushes a button, the touchscreen detects your finger before your finger makes firm contact with the screen.
-
-
-So let's start by using peaks in the pressure data to identify the occurrence of touch input.
-
-<!--
-Hold a phone in your hands horizontally. Consider pitch/yaw/roll from this orientation.
-
-Vertical lines represent touch input. All touch inputs seem to line up with spikes in the gyro data, but spikes in the gyro data do NOT correspond with touch inputs. As such, we must use the pressure sensor to detect when a touch input occurs. Dataset one seems the most clean (I hypothesize this axis is pitch, because the passcode keyboard is towards the bottom of the screen. because I would expect pitch to vary most with device inputs on the bottom of the screen.)
-
-
-```{r}
-scatterplot(pressure, "one", 0.03, 0.15)
-```
-
-### I don't know how to do peak detection..
 
 ..but here's my best guess.
 
