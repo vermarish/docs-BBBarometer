@@ -12,10 +12,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 ## Filepath on my desktop
-setwd("E:\\Desktop\\docs-BBBarometer")
+# setwd("E:\\Desktop\\docs-BBBarometer")
 
 ## Filepath on my laptop
-# setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
+setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
 ```
 
 # Introduction
@@ -246,35 +246,57 @@ test <- data %>%
 
 ## Next we build train_df
 # input: a dataframe containing pressure_data in a column
-# We will get a dataframe with 4-columns for each entry in an observation,
+# output: a dataframe where each row is the result of point-wise multiplication 
+#         between factor 1 and factor 2, and is labeled.
+#         factor 1:  iterated difference of pressure signal
+#                    (a naive first derivative)
+#         factor 2:  an impulse of specified width
+#                    e.g. width=3 -> factor_2=[0 ... 0 1 1 1 0 ... 0]
+#                    (the impulse is iterated for each row)
+#       
+#
 # and a 5th column for the label
 
 build_df_2 <- function(pressure_data, width) {
-  window = width + 1
-  
-  df <- data.frame(matrix(rep(NA,window), nrow=1))
+  df <- data.frame(matrix(rep(NA,width + 1), nrow=1))
   df <- na.omit(df)
   colnames(df)[ncol(df)] = "label"
   
   i = 1
-  while (i < nrow(pressure_data) - window) {
+  quota = 0
+  while (i <= nrow(pressure_data) - width) {
     event <- pressure_data %>%
       slice(i:(i+width+1))
     
     pressure_reading <- event %>%
       filter(type == "pressure") %>%
-      head(n=window) %>%
+      head(n=width+1) %>%
       .$one
     
     
     if (event$type[1] == "touch") {
-      print("skipping")
-    } else {
-      print(pressure_reading)
+      # then don't process it.
+      # 
+      # instead, start labeling subsequent pressure_events as 1
+      # quota is a "hyperparameter" for labeling data
+      # this line defines the size of the quota
+      quota = 2
+    } else {  # event$type[1] == "pressure"
+      # then label as 1 only if we need to meet the quota
+      if (quota > 0) {
+        label = 1
+        quota = quota - 1
+      } else {
+        label = 0
+      }
+      df[nrow(df)+1,] = c(diff(pressure_reading), label)
     }
-    
     i = i + 1
+    print(i)
+    print(df)
+    print("")
   }
+  return(df)
 }
 
 
@@ -326,27 +348,11 @@ build_df <- function(pressure_data, width) {
 }
 ```
 
-I should double-check that this labels the data correctly
-```{r}
-types = c(rep("pressure",5), 
-          "touch",
-          rep("pressure",5))
-one = c(1,2,4,7,11,
-        100,
-        -1,-2,-4,-7,-11)
-foobar = data.frame(type=types, one=one)
-
-df_result <- build_df(foobar, width=3)
-print(df_result)
-```
-
-
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 Really, the first question is how many data points does it take to figure out pressure input?
 
 ```{r}
-train_df <- build_df(train, width=4)
 touch_model <- glm(label ~ .,
                    data=train_df,
                    family="binomial")
@@ -361,11 +367,11 @@ scatterplot_d(data, "pressure", "one", 0.0, 0.05) +
 train_pressure_model <- function(train, test) {
   
   ## Arrange the data
-  train_df <- build_df(train, width=4)
-  test_df <- build_df(test, width=4)
+  train_df <- build_df_2(train, width=4)
+  test_df <- build_df_2(test, width=4)
   
   ## Fit the model
-  touch_model <- glm(label ~ X1 + X2 + X3 + X4 + X5 + X6 + X7, 
+  touch_model <- glm(label ~ ., 
                      data=train_df,
                      family = "binomial")
   
@@ -453,8 +459,12 @@ scatterplot(data, "pressure", "one", a, b) +
   ggtitle("We can detect touch input 6 samples later")
 ```
 
+<--DELETE EVERYTHING BELOW THIS-->
 Now I've confirmed that it works well on the training data. Let's check the testing data.
 ```{r}
+train_df <- build_df(train, width=4)
+test_df <- build_df(test, width=4)
+
 touch_model <- glm(label ~ X1 + X2 + X3 + X4, 
                    data=train_df,
                    family = "binomial")
