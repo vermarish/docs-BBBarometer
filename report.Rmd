@@ -443,7 +443,7 @@ Let's assume our touch input is good. Let's mine the subsequent gyroscope data f
 
 ```{r}
 
-data <- data %>%
+model <- data %>%
   bind_rows(thresholded_testing %>%
               filter(type=="touch_predict") %>%
               select(-p)) %>%
@@ -451,66 +451,127 @@ data <- data %>%
               filter(type=="touch_predict") %>%
               select(-p))
 
-scatterplot(data, "gyroscope", "one", start=0.6, end=0.65, alpha=0.8)
+model %>% group_by(type) %>% count()
+
+a=0.85
+scatterplot(model, "gyroscope", "one", start=a, end=a+0.05, alpha=0.8)
 ```
 
+Okay next phase! Given touch input (or a proxy for its occurrence), can I identify a relationship between gyroscope data and the location of the touch input?   
+
+Layer: A function that, given a vector of input occurrence and gyroscope data, mines features.
+
+Layer: A function that, given all data, mines gyroscope features. An option should be included to do
+toggle A: use "touch" and include touch location as a response
+toggle B: use "touch_predict" and do not include touch location as response.
+
+
+```{r}
+# In: signal should be a tibble with two columns: time and data (pressure data)
+# Ou: list of features
+pull_waveforms <- function(signal, times) {
+  features <- list()
+  
+  for (time in times) {
+    center <- which(signal$time > time)[1]
+    polarity <- sign(signal$data[center])
+    left <- center
+    right <- center
+    
+    while (left > 1 && sign(signal$data[left - 1]) == polarity) {
+      left <- left - 1
+    }
+    while (right < nrow(signal) && sign(signal$data[right + 1]) == polarity) {
+      right <- right + 1
+    }
+    feature <- signal$data[left:right]
+    features[[length(features)+1]] = feature
+  }
+}
+
+
+# In: TIME-SORTED data tibble with ONLY timestamped gyroscope entries
+# Ou: feature tibble containing each wave
+mine_features <- function(gyro, times) {
+  # columns of tibble:
+  #  times
+  #  gyro one peaks
+  #  gyro two peaks
+  #  gyro three peaks
+  gyro_one <- pull_waveforms(signal=gyro %>% select(time=time, data=one),
+                             times=times)
+  return(tibble(gyro_one, times))
+}
+
+
+# In: data tibble with gyroscope and touch entries.
+#     touch can be "touch" with x/y in headers $one $two. use labeled=TRUE.
+#     or touch can be "touch_guess" with no x/y. use labeled=FALSE.
+# Ou: if labeled=TRUE, collect the waveform and features with x/y labels.
+# Ou: if labeled=FALSE< collect the waveform and features
+gyro_from_touch <- function(data, labeled=TRUE) {
+  data <- data %>% arrange(time)
+  
+  gyro <- data %>%
+    filter(type == "gyroscope")
+  
+  if (labeled) {
+    times <- data %>%
+      filter(type == "touch") %>%
+      .$time
+  } else {
+    times <- data %>% 
+      filter(type == "touch_predict") %>%
+      .$time
+  }
+  
+  features <- mine_features(gyro, times)
+  
+  return(features)
+}
+
+
+# For testing
+foobar <- data %>% trim(0.3, 0.35)
+gyro <- foobar %>% filter(type == "gyroscope")
+times <- foobar %>% filter(type == "touch") %>% .$time
+signal <- gyro %>% select(time=time, data=one)
 
 
 
 
+gyro_from_touch(data %>% trim(0.3, 0.35))
+```
 
-Discard this, I think.
+Which features do I mine? 
+
+Perhaps the next 10 datapoints.
+Perhaps their slopes.
+Perhaps I subsample the next 10 datapoints.
+Perhaps the point of greatest absolute value in the neighborhood.
+  What is a neighborhood? Is it simply 10 points before and 10 points after? Or maybe I can be clever with it around the zeros. Suppose my pressure data points me to a positive accelerometer peak. I could consider everything between the surrounding zeros as the peak. I could use the width of this peak as a statistical measure.
+  
+This peak will have n points. How do I mine this peak?????
+
+I really need some sort of book on statistical methods for time series
+First let's just get a data structure containing
+  X, Y, <peak values>
+I don't think dataframes will work with this. It's un-tidy by nature. No fixed number of columns (no schema)
+NVM LOL
+the trick is to insert a vector of lists as a named column
+https://stackoverflow.com/questions/15980281/storing-a-list-within-a-data-frame-element-in-r
+
 ```{r}
 
-## Build a model on the first 60% as training data
-touch_model <- glm(label ~ X1 + X2 + X3 + X4, 
-                   data=train_df,
-                   family = "binomial")
+r1 = c(5,6)
+r2 = c(7,8)
+r3 = c(9,10)
+r4 = c(11,12)
 
-result_training <- bind_cols(train %>% 
-                      filter(type == "pressure") %>% 
-                      slice((buffer):(buffer+nrow(train_df))),
-                    touch_model$fitted.values) %>%
-  rename(p = ...6)
-
-
-## Plotting two vertical scales derived from
-##   https://stackoverflow.com/a/51844068/9616058
-#a = 0.3
-#b = 0.4
-
-#scatterplot(data, "pressure", "one", a, b) +
-#  geom_line(data=result_training %>% trim(a,b),
-#            aes(y= p*diff(range(one)) + min(one)),
-#            colour="red") +
-#  ggtitle("The pressure sensor can detect input later")
-
-
-a = 0.35
-b = 0.45
-
-shift <- 6
-
-result_training_shifted <- result_training
-result_training_shifted$p <- c(
-  result_training_shifted$p[(shift+1):nrow(result_training_shifted)],
-  rep(0, shift)
-)
-
-scatterplot(data, "pressure", "one", a, b) +
-  geom_line(data=result_training_shifted %>% trim(a,b),
-            aes(y= p*diff(range(one)) + min(one)),
-            colour="red") +
-  ggtitle("We can detect touch input 6 samples later")
+test.df <- data.frame(alpha=c(1,2),
+                      bravo=c(3,4))
+test.df$charlie = list(r1, r2)
 ```
 
 
 
-
-.
-.
-TODO compute touch occurrence from pressure data.
-.
-.
-
-Now to carry out the experiments for location of touch input. 
