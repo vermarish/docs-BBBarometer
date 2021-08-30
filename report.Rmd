@@ -487,6 +487,7 @@ pull_waveforms <- function(signal, times) {
     feature <- signal$data[left:right]
     features[[length(features)+1]] = feature
   }
+  return(features)
 }
 
 
@@ -500,7 +501,13 @@ mine_features <- function(gyro, times) {
   #  gyro three peaks
   gyro_one <- pull_waveforms(signal=gyro %>% select(time=time, data=one),
                              times=times)
-  return(tibble(gyro_one, times))
+  
+  gyro_two <- pull_waveforms(signal=gyro %>% select(time=time, data=two),
+                             times=times)
+  gyro_three <- pull_waveforms(signal=gyro %>% select(time=time, data=three),
+                             times=times)
+  
+  return(tibble(gyro_one, gyro_two, gyro_three, times))
 }
 
 
@@ -512,9 +519,9 @@ mine_features <- function(gyro, times) {
 gyro_from_touch <- function(data, labeled=TRUE) {
   data <- data %>% arrange(time)
   
+  ## Use gyro and touch data to mine features
   gyro <- data %>%
     filter(type == "gyroscope")
-  
   if (labeled) {
     times <- data %>%
       filter(type == "touch") %>%
@@ -524,23 +531,29 @@ gyro_from_touch <- function(data, labeled=TRUE) {
       filter(type == "touch_predict") %>%
       .$time
   }
-  
   features <- mine_features(gyro, times)
+  
+  ## Add labels
+  if (labeled) {
+    labels <- data %>%
+      filter(type=="touch") %>%
+      select(x=one, y=two)
+    features <- features %>% bind_cols(labels)
+  }
   
   return(features)
 }
 
 
 # For testing
-foobar <- data %>% trim(0.3, 0.35)
+foobar <- model %>% trim(0.3, 0.35)
 gyro <- foobar %>% filter(type == "gyroscope")
 times <- foobar %>% filter(type == "touch") %>% .$time
 signal <- gyro %>% select(time=time, data=one)
 
 
 
-
-gyro_from_touch(data %>% trim(0.3, 0.35))
+gyro_from_touch(model %>% trim(0.7, 0.75), labeled=FALSE)
 ```
 
 Which features do I mine? 
