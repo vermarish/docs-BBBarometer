@@ -567,24 +567,3 @@ Perhaps the point of greatest absolute value in the neighborhood.
 This peak will have n points. How do I mine this peak?????
 
 I really need some sort of book on statistical methods for time series
-First let's just get a data structure containing
-  X, Y, <peak values>
-I don't think dataframes will work with this. It's un-tidy by nature. No fixed number of columns (no schema)
-NVM LOL
-the trick is to insert a vector of lists as a named column
-https://stackoverflow.com/questions/15980281/storing-a-list-within-a-data-frame-element-in-r
-
-```{r}
-
-r1 = c(5,6)
-r2 = c(7,8)
-r3 = c(9,10)
-r4 = c(11,12)
-
-test.df <- data.frame(alpha=c(1,2),
-                      bravo=c(3,4))
-test.df$charlie = list(r1, r2)
-```
-
-
-
