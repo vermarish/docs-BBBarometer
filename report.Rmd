@@ -459,12 +459,17 @@ scatterplot(model, "gyroscope", "one", start=a, end=a+0.05, alpha=0.8)
 
 Okay next phase! Given touch input (or a proxy for its occurrence), can I identify a relationship between gyroscope data and the location of the touch input?   
 
-Layer: A function that, given a vector of input occurrence and gyroscope data, mines features.
+Which features do I mine? 
 
-Layer: A function that, given all data, mines gyroscope features. An option should be included to do
-toggle A: use "touch" and include touch location as a response
-toggle B: use "touch_predict" and do not include touch location as response.
+Perhaps the next 10 datapoints.
+Perhaps their slopes.
+Perhaps I subsample the next 10 datapoints.
+Perhaps the point of greatest absolute value in the neighborhood.
+  What is a neighborhood? Is it simply 10 points before and 10 points after? Or maybe I can be clever with it around the zeros. Suppose my pressure data points me to a positive accelerometer peak. I could consider everything between the surrounding zeros as the peak. I could use the width of this peak as a statistical measure.
+  
+This peak will have n points. How do I mine this peak?????
 
+I really need some sort of book on statistical methods for time series
 
 ```{r}
 # In: signal should be a tibble with two columns: time and data (pressure data)
@@ -494,11 +499,11 @@ pull_waveforms <- function(signal, times) {
 # In: TIME-SORTED data tibble with ONLY timestamped gyroscope entries
 # Ou: feature tibble containing each wave
 mine_features <- function(gyro, times) {
-  # columns of tibble:
-  #  times
-  #  gyro one peaks
-  #  gyro two peaks
-  #  gyro three peaks
+  # Mining features with pull_waveforms works better when delayed by 7-10 samples, to get closer to the center of a peak.
+  delay <- 10
+  period <- gyro$time %>% diff %>% mean
+  times <- times + delay*period
+  
   gyro_one <- pull_waveforms(signal=gyro %>% select(time=time, data=one),
                              times=times)
   
@@ -507,7 +512,14 @@ mine_features <- function(gyro, times) {
   gyro_three <- pull_waveforms(signal=gyro %>% select(time=time, data=three),
                              times=times)
   
-  return(tibble(gyro_one, gyro_two, gyro_three, times))
+  # mine the extremum of each waveform as a feature
+  extremum_one <- gyro_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
+  extremum_two <- gyro_two %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
+  extremum_three <- gyro_three %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
+  
+  return(tibble(gyro_one, gyro_two, gyro_three, 
+                extremum_one, extremum_two, extremum_three,
+                times))
 }
 
 
@@ -532,7 +544,7 @@ gyro_from_touch <- function(data, labeled=TRUE) {
       .$time
   }
   features <- mine_features(gyro, times)
-  
+   
   ## Add labels
   if (labeled) {
     labels <- data %>%
@@ -551,19 +563,5 @@ gyro <- foobar %>% filter(type == "gyroscope")
 times <- foobar %>% filter(type == "touch") %>% .$time
 signal <- gyro %>% select(time=time, data=one)
 
-
-
-gyro_from_touch(model %>% trim(0.7, 0.75), labeled=FALSE)
+gyro_from_touch(model %>% trim(0.7, 0.75), labeled=TRUE)
 ```
-
-Which features do I mine? 
-
-Perhaps the next 10 datapoints.
-Perhaps their slopes.
-Perhaps I subsample the next 10 datapoints.
-Perhaps the point of greatest absolute value in the neighborhood.
-  What is a neighborhood? Is it simply 10 points before and 10 points after? Or maybe I can be clever with it around the zeros. Suppose my pressure data points me to a positive accelerometer peak. I could consider everything between the surrounding zeros as the peak. I could use the width of this peak as a statistical measure.
-  
-This peak will have n points. How do I mine this peak?????
-
-I really need some sort of book on statistical methods for time series
