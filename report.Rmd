@@ -307,10 +307,12 @@ build_df <- function(pressure_data, width) {
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 ```{r}
-# input: tibbles with the tidbits
+# input: tibbles with the tidbits, and a width parameter
 # this function will restructure the tidbits for regression,
 #                    train the model,
 #                    and return the fitting for train and test.
+# the width describes the size of the window passed across the signal
+# the windowed signal is used in logistic regression
 train_pressure_model <- function(train, test, width=4) {
   buffer = width
   
@@ -566,6 +568,54 @@ signal <- gyro %>% select(time=time, data=one)
 gyro_from_touch(model %>% trim(0.7, 0.75), labeled=TRUE)
 ```
 
+Great. It only took 300+ lines of code to get here, from the data presented by the Android app to an actual workable tidy learnable format. I'm going to encapsulate this in one function.
+
+```{r}
+build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
+  if (is.null(tidbits)) {
+    tidbits <- read_csv(path)
+  }
+  
+  data <- clean_tidbits(tidbits)
+  
+  ## Build dataframes for train and test
+  ## 60/40 split
+  prop = 0.6
+  touch_data <- data %>%
+  	filter(type == "touch") %>%
+  	arrange(time)
+  cutoff <- touch_data$time[as.integer(nrow(touch_data)*prop)]
+  train <- data %>%
+    filter(time < cutoff) %>%
+    filter(type %in% c("pressure", "touch")) %>%
+    arrange(time)
+  test <- data %>%
+    filter(time > cutoff) %>%
+    filter(type %in% c("pressure", "touch")) %>%
+    arrange(time)
+  
+  
+  ## Use pressure data to build a pressure model,
+  result_pair <- train_pressure_model(train, test, width=4)
+
+  ## threshold the pressure model for touch_predict tidbits
+  thresholded_testing <- threshold_pressure(result_pair$testing, threshold=0.5) %>%
+    bind_rows(test %>% filter(type=="touch"))
+  ## and combine the results
+  model <- data %>%
+    bind_rows(thresholded_testing %>%
+                filter(type=="touch_predict") %>%
+                select(-p)) %>%
+    bind_rows(thresholded_training %>%
+                filter(type=="touch_predict") %>%
+                select(-p))
+  
+  exp_data <- gyro_from_touch(model, labeled=TRUE)
+}
+
+exp1_dupl <- build_experiment(path="data/experiment_1.csv")
+```
+
 Alright. Experiment one. Can I discern left/right movement?
 
 ```{r}
@@ -574,7 +624,23 @@ exp1_data <- gyro_from_touch(model, labeled=TRUE)
 exp1_data %>% 
   ggplot(aes(x=x, y=y)) +
   geom_point() +
-  xlim(0, 1080) +
-  ylim(0, 2400) +
-  theme(aspect.ratio=16/9)
+  xlim(0, 1080) + ylim(0, 2400) + theme(aspect.ratio=2400/1080)
+
+model.1 <- lm(formula=x~extremum_one + extremum_two + extremum_three, 
+   data=exp1_data)
+model.1
+
+bounds <- exp1_data[4:6] %>% abs() %>% max()
+
+exp1_data %>%
+  mutate(side = ifelse(x > 500, "right", "left")) %>%
+  ggplot(aes(x=extremum_two, y=extremum_three, color=side)) +
+  geom_point() +
+  geom_hline(yintercept=0, color="#aaaaaa") + 
+  geom_vline(xintercept=0, color="#aaaaaa") + 
+  xlim(-bounds, bounds) + 
+  ylim(-bounds, bounds) +
+  ggtitle("Experiment 1 is discernible")
 ```
+
+I'm running into a minor analytic problem here. This graph shows a strong association between touch data and the gyroscope data. This is great! Decision tree classification would work very well on x. I thought it would be as simple as linear regression, but regression will be nonlinear. 
