@@ -25,7 +25,7 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 # Experiment 1
 
 ```{r include=FALSE}
-tidbits <- read_csv("data/experiment_2.csv")
+tidbits <- read_csv("data/experiment_1.csv")
 ```
 
 
@@ -564,4 +564,17 @@ times <- foobar %>% filter(type == "touch") %>% .$time
 signal <- gyro %>% select(time=time, data=one)
 
 gyro_from_touch(model %>% trim(0.7, 0.75), labeled=TRUE)
+```
+
+Alright. Experiment one. Can I discern left/right movement?
+
+```{r}
+exp1_data <- gyro_from_touch(model, labeled=TRUE)
+
+exp1_data %>% 
+  ggplot(aes(x=x, y=y)) +
+  geom_point() +
+  xlim(0, 1080) +
+  ylim(0, 2400) +
+  theme(aspect.ratio=16/9)
 ```
