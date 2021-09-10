@@ -11,7 +11,8 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
-library(GGally)
+library(GGally) # for ggpairs scatterplot matrix
+library(ggpubr) # for multiple ggplots in one figure
 ## Filepath on my desktop
 # setwd("E:\\Desktop\\docs-BBBarometer")
 
@@ -427,6 +428,8 @@ threshold_pressure <- function(result, threshold=0.4) {
   return(thresholded)
 }
 
+thresholded_training <- threshold_pressure(result_pair$testing, threshold=0.5) %>%
+  bind_rows(test %>% filter(type=="touch"))
 
 thresholded_testing <- threshold_pressure(result_pair$testing, threshold=0.5) %>%
   bind_rows(test %>% filter(type=="touch"))
@@ -661,7 +664,7 @@ exp2_data <- build_experiment(path="data/experiment_2.csv") %>%
 
 # The experiment is distributed center/lower
 exp2_data %>% 
-  ggplot(aes(x=x, y=y)) +
+  ggplot(aes(x=x, y=y, color=side)) +
   geom_point() +
   theme(aspect.ratio=2400/1080) +      ##formatting
   scale_y_reverse(limits=c(2400,0)) +  ##
@@ -673,30 +676,87 @@ exp2_data %>%
 ggpairs(exp2_data, 
         columns=c(4:6, 9),
         mapping = ggplot2::aes(color=side))
-```
-  
-TODO this whole chunk
-```{r}
-exp2_data <- build_experiment(path="data/experiment_2.csv")
-# TODO 0-0 is the top left of the display.
-exp2_data %>% 
-  ggplot(aes(x=x, y=y)) +
-  geom_point() +
-  xlim(0, 1080) + theme(aspect.ratio=2400/1080) + scale_y_reverse(limits=c(2400,0))
 
-#model.1 <- lm(formula=x~extremum_one + extremum_two + extremum_three, 
-   #data=exp1_data)
-#model.1
 
 bounds <- exp2_data[4:6] %>% abs() %>% max()
 
 exp2_data %>%
-  mutate(side = ifelse(y > 1800, "center", "bottom")) %>%
-  ggplot(aes(x=extremum_one, y=extremum_three, color=side)) +
+  ggplot(aes(x=extremum_two, y=extremum_three, color=side)) +
   geom_point() +
   geom_hline(yintercept=0, color="#aaaaaa") + 
   geom_vline(xintercept=0, color="#aaaaaa") + 
-  xlim(-bounds, bounds) + 
+  xlim(-bounds, bounds) +
   ylim(-bounds, bounds) +
-  ggtitle("Experiment 2 is not bad")
+  ggtitle("Experiment 2 is not discernible with gyro")
+```
+  
+TODO the data shows this experiment is not answerable by gyro data. I will have to see about using pressure height. This will require getting my hands dirty with the functions, so I will do this later.
+
+TODO ya know, this plot demonstrates that usage of a scatterplot isn't really smart here. The human eye isn't so great at discerning patterns in point clouds. If I learned anything from CSE 412, it's that I can aggregate. Perhaps I can use a diverging colorscheme with a visible center (RdYlBu) to indicate confusion between the two classes. Then, in order to indicate a lack of data, I could alter the luminesence or saturation of the color, or I could even re-add the points on top of the aggregation.
+
+Experiment three:
+```{r}
+group_by_quantile <- function(vec, num_of_groups=4) {
+  breaks <- seq(from=0, to=1, length.out=num_of_groups+1)
+  quantiles <- quantile(vec, probs=breaks)
+  boundaries <- quantiles[2:length(quantiles)]
+  
+  class <- vec %>% sapply(function(x) {
+    which(x <= boundaries)[1]
+  })
+  
+  return(factor(unname(class)))
+}
+
+exp3_data <- build_experiment(path="data/experiment_3.csv") %>%
+  mutate(quantile=group_by_quantile(x+y))
+
+# The experiment is distributed in an arc
+exp3_map <- exp3_data %>% 
+  ggplot(aes(x=x, y=y, color=quantile)) +
+  geom_point() +
+  theme(aspect.ratio=2400/1080) +      ##formatting
+  scale_y_reverse(limits=c(2400,0)) +  ##
+  scale_x_continuous(limits=c(0,1080), ##
+                     position="top") + ##
+  ggtitle("Experiment 3:", subtitle="A simple regression problem\n(one response variable)")
+
+
+# If x and y were distributed in a quarter circle, I would compute the angle of each point around the circle to do regression on a single variable
+# Since x and y are strongly collinear (r=0.97), I can safely discard one of the responses.
+
+# This scatterplot matrix indicates
+exp3_matrix <- ggpairs(exp3_data, 
+        columns=c(4:6,8),
+        mapping = ggplot2::aes(color=quantile))
+
+bounds <- exp3_data[4:6] %>% abs() %>% max()
+
+exp3_space_all <- exp3_data %>%
+  #filter(quantile %in% c(1,4)) %>%
+  rename(side=quantile) %>%
+  ggplot(aes(x=extremum_one, y=extremum_two, color=side)) +
+  geom_point() +
+  geom_hline(yintercept=0, color="#aaaaaa") + 
+  geom_vline(xintercept=0, color="#aaaaaa") + 
+  xlim(-bounds, bounds) +
+  ylim(-bounds, bounds) +
+  ggtitle("Experiment 3 seems cloudy at first")
+
+exp3_space_filter <- exp3_data %>%
+  filter(quantile %in% c(1,3)) %>%
+  rename(side=quantile) %>%
+  ggplot(aes(x=extremum_one, y=extremum_two, color=side)) +
+  geom_point() +
+  geom_hline(yintercept=0, color="#aaaaaa") + 
+  geom_vline(xintercept=0, color="#aaaaaa") + 
+  xlim(-bounds, bounds) +
+  ylim(-bounds, bounds) +
+  ggtitle("Experiment 3 is not discernible with gyro")
+
+exp3_space <- ggarrange(exp3_space_all, exp3_space_filter)
+
+exp3_map
+exp3_matrix
+exp3_space
 ```
