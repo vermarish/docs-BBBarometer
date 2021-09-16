@@ -479,7 +479,8 @@ I really need some sort of book on statistical methods for time series
 
 ```{r}
 # In: signal should be a tibble with two columns: time and data (pressure data)
-# Ou: list of features
+#     times should be a vector of doubles.
+# Ou: list of waveforms. (each waveform is itself represented as a list)
 pull_waveforms <- function(signal, times) {
   features <- list()
   
@@ -533,7 +534,7 @@ mine_features <- function(gyro, times) {
 #     touch can be "touch" with x/y in headers $one $two. use labeled=TRUE.
 #     or touch can be "touch_guess" with no x/y. use labeled=FALSE.
 # Ou: if labeled=TRUE, collect the waveform and features with x/y labels.
-# Ou: if labeled=FALSE< collect the waveform and features
+# Ou: if labeled=FALSE, collect the waveform and features
 gyro_from_touch <- function(data, labeled=TRUE) {
   data <- data %>% arrange(time)
   
@@ -550,7 +551,7 @@ gyro_from_touch <- function(data, labeled=TRUE) {
       .$time
   }
   features <- mine_features(gyro, times)
-   
+  
   ## Add labels
   if (labeled) {
     labels <- data %>%
@@ -572,9 +573,29 @@ signal <- gyro %>% select(time=time, data=one)
 gyro_from_touch(model %>% trim(0.7, 0.75), labeled=TRUE)
 ```
 
-Great. It only took 300+ lines of code to get here, from the data presented by the Android app to an actual workable tidy learnable format. I'm going to encapsulate this in one function.
+Great. It only took 300+ lines of code to get here, from the data presented by the Android app to an actual workable tidy learnable format. I'm going to encapsulate this in one function. I'm also going to use the output of the pressure model as a feature.
 
 ```{r}
+# In: tibble of pressure data with columns `time` and `p`, 
+#     vector of times
+# Ou: a feature vector containing the strongest p-value
+pull_pressure_features <- function(result_pair, times) {
+  pressure_data <- bind_rows(result_pair$testing %>% mutate(stage="testing"),
+                             result_pair$training %>% mutate(stage="training")) %>%
+    select(time, p, stage) %>%
+    arrange(time)
+  
+  i <- 1
+  features <- c()
+  for (time in times) {
+    index <- which(pressure_data$time > time)[1]
+    values <- pressure_data$p[(index-2):(index+5)]
+    features[i] <- max(values)
+    i <- i + 1
+  }
+  return(features)
+}
+
 build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
   if (is.null(tidbits)) {
     tidbits <- read_csv(path)
@@ -614,15 +635,32 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
                 filter(type=="touch_predict") %>%
                 select(-p))
   
-  exp_data <- gyro_from_touch(model, labeled=TRUE)
+  exp_data <- gyro_from_touch(model, labeled=TRUE) %>%
+    mutate(deflection = pull_pressure_features(result_pair, times))
+
+  
+  result <- list()
+  result$exp_data <- exp_data
+  result$pressure_training <- result_pair$training
+  result$pressure_testing <- result_pair$testing
+  return(result)
 }
 
 ```
+
+<TODO>
+Wait hold up. I need to modify the function above so that when I mine exp_data, I also get a feature from the pressure data. I'll need a helper function so that I can input a vector of times and the p-model data, and it'll mine features for me. I thought about re-using pull_waveforms, but that pulls from zero-centered data. My p-model goes between 0 and 1, so........ maybe check the three values before and the five values after and get the max. That'll be my feature.
+
+```{r}
+
+```
+</TODO>
 
 Alright. Experiment one. Can I discern left/right movement?
 
 ```{r}
 exp1_data <- build_experiment(path="data/experiment_1.csv") %>%
+  .$exp_data %>%
   mutate(side = ifelse(x > 500, "right", "left"))
 
 # The experiment is distributed left/right
@@ -659,8 +697,13 @@ I can in fact discern left/right movement. Visually, I can already tell that sim
 Experiment two: Do taps in the center vs. the edge differ in pressure deviation?
  TODO
 ```{r}
-exp2_data <- build_experiment(path="data/experiment_2.csv") %>%
+exp2 <- build_experiment(path="data/experiment_2.csv")
+
+exp2_data <- exp2 %>%
+  .$exp_data %>%
   mutate(side = ifelse(y > 1800, "lower", "center"))
+
+exp2_pressure_testing <- exp2$pressure_testing
 
 # The experiment is distributed center/lower
 exp2_data %>% 
@@ -710,6 +753,7 @@ group_by_quantile <- function(vec, num_of_groups=4) {
 
 
 exp3_data <- build_experiment(path="data/experiment_3.csv") %>%
+  .$exp_data %>%
   mutate(quantile=group_by_quantile(x+y))
 
 # The experiment is distributed in an arc
@@ -768,22 +812,45 @@ Okay. I haven't finished experiment 2 yet, but experiments 1 and 3 have given me
 Let's try a realistic dataset.
 
 ```{r}
-exp4_data <- build_experiment(path="data/raw 3-28-2021.csv") %>%
+exp4 <- build_experiment(path="data/raw 3-28-2021.csv")
+
+exp4_data <- exp4$exp_data %>%
   mutate(col = 1*(x<380) + 2*(380<x&x<700) + 3*(700<x),
          row = 1*(y<1550) + 2*(1550<y&y<1680) + 3*(1680<y&y<1880) + 4*(1880<y)) %>%
   mutate(digit = ifelse(row==4, 0, col+3*row-3))
 
+# The deflection is strangely distributed. 
+# There are two modes, visually separable around the median of 0.8.
+hist(exp4_data$deflection, breaks=20)
+quantile(exp4_data$deflection)
+# Coloring exp4_map with group_by_quantile(deflection, num_of_groups=[2 or 4])
+# suggests that there's something valuable here, separating the bottom of the
+# screen (digits 0 and 8) from the rest.
+# To further examine, I will try a continuous color scale.
+# It would be nice to find a transform that makes this distribution uniform, but
+# simple tricks don't seem to work. Thus, I will try something impractical and 
+# check the rank variables.
+
+exp4_data <- exp4_data %>%
+  arrange(deflection) %>%
+  mutate(deflection_rank=1:nrow(exp4_data)) %>%
+  arrange(times)
+
+
 exp4_map <- exp4_data %>% 
-  ggplot(aes(x=x, y=y)) +
+  ggplot(aes(x=x, y=y, color=deflection_rank, alpha=0.5, size=1)) +
   geom_point() +
+  scale_color_viridis_c() +
   theme(aspect.ratio=2400/1080) +      ##formatting
   scale_y_reverse(limits=c(2400,0)) +  ##
   scale_x_continuous(limits=c(0,1080), ##
                      position="top") + ##
   ggtitle("Experiment 4:", subtitle="A real-world scenario")
+exp4_map
 
 exp4_matrix <- ggpairs(exp4_data, 
         columns=c(4:6,8))
+
 
 
 
