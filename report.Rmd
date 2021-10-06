@@ -166,7 +166,7 @@ scatterplot <- function(data, sensor_type, col,
   return(graph)
 }
 
-scatterplot(data, "pressure", "one", 0.4, 0.5)
+scatterplot(data, "pressure", "one", 0.7, 0.75)
 ```
 
 
@@ -225,7 +225,6 @@ scatterplot_d <- function(data, sensor_type, col, start, end) {
 
 #scatterplot_d(data, "pressure", "one", 0.5, 0.55) +
 #  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
-
 ```
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as 
@@ -689,6 +688,35 @@ exp1_data %>%
   xlim(-bounds, bounds) +
   ylim(-bounds, bounds)
   ggtitle("Experiment 1 is discernible")
+  
+# For SEAL application
+fig1a <- exp1_data %>% 
+  ggplot(aes(x=x, y=y, color=side)) +
+  geom_point() +
+  theme(aspect.ratio=2400/1080) +      ##formatting
+  scale_y_reverse(limits=c(2400,0)) +  ##
+  scale_x_continuous(limits=c(0,1080), ##
+                     position="top") + ##
+  ggtitle("Taps on phone display") +
+  xlab("horizontal pixels") +
+  ylab("vertical pixels")
+
+fig1a
+
+fig1b <- exp1_data %>%
+  ggplot(aes(x=extremum_two, y=extremum_three, color=side)) +
+  geom_point() +
+  geom_hline(yintercept=0, color="#aaaaaa") + 
+  geom_vline(xintercept=0, color="#aaaaaa") + 
+  xlim(-bounds, bounds) +
+  ylim(-bounds, bounds) +
+  xlab("Rotation on y-axis") +
+  ylab("Rotation on z-axis") +
+  ggtitle("Latent space")
+
+fig1b
+
+fig1 <- ggarrange(fig1a, fig1b, common.legend=TRUE, legend="bottom") #TODO export for SEAL
 ```
 
 I can in fact discern left/right movement. Visually, I can already tell that simple decision tree classification would work well for this experiment. I must remember that while experiment 1 is binary classification, the final problem is regression.
@@ -754,11 +782,11 @@ group_by_quantile <- function(vec, num_of_groups=4) {
 
 exp3_data <- build_experiment(path="data/experiment_3.csv") %>%
   .$exp_data %>%
-  mutate(quantile=group_by_quantile(x+y))
+  mutate(quartile=group_by_quantile(x+y))
 
 # The experiment is distributed in an arc
 exp3_map <- exp3_data %>% 
-  ggplot(aes(x=x, y=y, color=quantile)) +
+  ggplot(aes(x=x, y=y, color=quartile)) +
   geom_point() +
   theme(aspect.ratio=2400/1080) +      ##formatting
   scale_y_reverse(limits=c(2400,0)) +  ##
@@ -773,38 +801,56 @@ exp3_map <- exp3_data %>%
 # This scatterplot matrix indicates
 exp3_matrix <- ggpairs(exp3_data, 
         columns=c(4:6,8),
-        mapping = ggplot2::aes(color=quantile))
+        mapping = ggplot2::aes(color=quartile))
 
 bounds <- exp3_data[4:6] %>% abs() %>% max()
 
 exp3_space_all <- exp3_data %>%
-  #filter(quantile %in% c(1,4)) %>%
-  rename(side=quantile) %>%
-  ggplot(aes(x=extremum_one, y=extremum_two, color=side)) +
-  geom_point() +
+  ggplot(aes(x=extremum_one, y=extremum_two, color=quartile)) +
+  geom_point(size=2, alpha=0.8) +
   geom_hline(yintercept=0, color="#aaaaaa") + 
   geom_vline(xintercept=0, color="#aaaaaa") + 
   xlim(-bounds, bounds) +
   ylim(-bounds, bounds) +
   ggtitle("Experiment 3", 
-          subtitle="the space seems too cloudy for regression..")
+          subtitle="the space seems too cloudy for regression..") +
+  xlab("Rotation on x-axis") +
+  ylab("Rotation on y-axis")
 
 exp3_space_filter <- exp3_data %>%
-  filter(quantile %in% c(1,3)) %>%
-  rename(side=quantile) %>%
-  ggplot(aes(x=extremum_one, y=extremum_two, color=side)) +
-  geom_point() +
+  filter(quartile %in% c(1,3)) %>%
+  ggplot(aes(x=extremum_one, y=extremum_two, color=quartile)) +
+  geom_point(size=2, alpha=0.8) +
   geom_hline(yintercept=0, color="#aaaaaa") + 
   geom_vline(xintercept=0, color="#aaaaaa") + 
   xlim(-bounds, bounds) +
   ylim(-bounds, bounds) +
-  ggtitle("",subtitle="but the results show separation on a medium scale.")
+  ggtitle("",subtitle="but the results show separation on a medium scale.") +
+  xlab("Rotation on x-axis") +
+  ylab("Rotation on y-axis")
 
 exp3_space <- ggarrange(exp3_space_all, exp3_space_filter)
 
 exp3_map
 exp3_matrix
 exp3_space
+
+
+fig3a <- exp3_map + 
+  ggtitle("Taps on phone display", subtitle=NULL) +
+  xlab("horizontal pixels") +
+  ylab("vertical pixels")
+fig3b <-  ggarrange(exp3_space_all + 
+                      ggtitle("Latent space", subtitle=NULL),
+                    exp3_space_filter + 
+                      ggtitle("Latent space", subtitle="first and third quartiles only"),
+                    nrow=2,
+                    ncol=1,
+                    legend=FALSE)
+fig3b
+
+fig3 <- ggarrange(fig3a, fig3b, common.legend=TRUE, legend="bottom")
+fig3
 ```
 
 Okay. I haven't finished experiment 2 yet, but experiments 1 and 3 have given me some faith in this project.
@@ -838,25 +884,26 @@ exp4_data <- exp4_data %>%
 
 
 exp4_map <- exp4_data %>% 
-  ggplot(aes(x=x, y=y, color=deflection_rank, alpha=0.5, size=1)) +
-  geom_point() +
+  ggplot(aes(x=x, y=y, color=deflection_rank)) +
+  geom_point(size=3, alpha=0.5) +
   scale_color_viridis_c() +
   theme(aspect.ratio=2400/1080) +      ##formatting
   scale_y_reverse(limits=c(2400,0)) +  ##
   scale_x_continuous(limits=c(0,1080), ##
                      position="top") + ##
   ggtitle("Experiment 4:", subtitle="A real-world scenario")
-exp4_map
+
 
 exp4_matrix <- ggpairs(exp4_data, 
         columns=c(4:6,8))
 
-
-
-
 exp4_map
 exp4_matrix
 
+fig4 <- exp4_map +
+  xlab("horizontal pixels") +
+  ylab("vertical pixels") +
+  ggtitle("Taps on phone display", subtitle="ranked by amount of deflection in pressure sensor")
 ```
 
 TODO I've got to label this data by row, col, number.
