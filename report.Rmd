@@ -14,23 +14,21 @@ library(tidyverse)
 library(GGally) # for ggpairs scatterplot matrix
 library(ggpubr) # for multiple ggplots in one figure
 ## Filepath on my desktop
-# setwd("E:\\Desktop\\docs-BBBarometer")
+setwd("E:\\Desktop\\docs-BBBarometer")
 
 ## Filepath on my laptop
-setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
+# setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
 ```
 
-# Introduction
+## Introduction
 
 My phone has a gyroscope and a barometer, which respectively measure rotational velocity and air pressure. This paper centers around the phenomenon that when I touch the screen, the barometer registers a spike in air pressure, likely because the force of my finger causes a volume deflection inside the phone. The gyroscope is susceptible to recording tremors in the hand holding the phone, but if the barometer can indicate WHEN touch input occurs, the gyroscope can indicate WHERE on the screen the touch input occurs. This could be applied to create a malicious background process which can read a user's PIN code with access only to barometer and gyroscope sensor data. This report is a work in progress.
 
-# Experiment 1
+
 
 ```{r include=FALSE}
 tidbits <- read_csv("data/experiment_1.csv")
 ```
-
-
 
 Type 1: accelerometer data (includes x/y/z)  
 Type 4: gyroscope data (includes x/y/z)  
@@ -169,6 +167,7 @@ scatterplot <- function(data, sensor_type, col,
 scatterplot(data, "pressure", "one", 0.7, 0.75)
 ```
 
+## Phase One: finding touch occurrence from pressure data
 
 Now to detect touch occurrence. I could do something dumb and threshold the pressure data, or I could do something clever and train a model. Perhaps I keep a buffer of the last four pressure readings, or simply the last four changes in pressure reading. This will be tuple of 4 predictors. To form a training dataset, I need responses; perhaps the four-tuple nearest in time
 
@@ -229,7 +228,9 @@ scatterplot_d <- function(data, sensor_type, col, start, end) {
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as 
 
-Okay so let's do it. Let's use the first 60\% of the data as training data, and the last 40\% as testing data. With 161 data points in experiment 1, this is 112 data points in training and 48 data points in testing.
+### Prep data
+
+Okay so let's do it. Let's use the first 60\% of the data as training data, and the last 40\% as testing data. With 161 data points in experiment 1, this is 101 data points in training and 69 data points in testing.
 
 ```{r}
 prop = 0.6  # proportion of training data
@@ -686,7 +687,7 @@ exp1_data %>%
   geom_hline(yintercept=0, color="#aaaaaa") + 
   geom_vline(xintercept=0, color="#aaaaaa") + 
   xlim(-bounds, bounds) +
-  ylim(-bounds, bounds)
+  ylim(-bounds, bounds) 
   ggtitle("Experiment 1 is discernible")
   
 # For SEAL application
@@ -765,7 +766,7 @@ TODO the data shows this experiment is not answerable by gyro data. I will have 
 
 TODO ya know, this plot demonstrates that usage of a scatterplot isn't really smart here. The human eye isn't so great at discerning patterns in point clouds. If I learned anything from CSE 412, it's that I can aggregate. Perhaps I can use a diverging colorscheme with a visible center (RdYlBu) to indicate confusion between the two classes. Then, in order to indicate a lack of data, I could alter the luminesence or saturation of the color, or I could even re-add the points on top of the aggregation.
 
-Experiment three:
+# Experiment 3
 ```{r}
 group_by_quantile <- function(vec, num_of_groups=4) {
   breaks <- seq(from=0, to=1, length.out=num_of_groups+1)
