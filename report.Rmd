@@ -14,10 +14,10 @@ library(tidyverse)
 library(GGally) # for ggpairs scatterplot matrix
 library(ggpubr) # for multiple ggplots in one figure
 ## Filepath on my desktop
-setwd("E:\\Desktop\\docs-BBBarometer")
+# setwd("E:\\Desktop\\docs-BBBarometer")
 
 ## Filepath on my laptop
-# setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
+setwd("C:\\Users\\risha\\OneDrive\\Desktop\\docs-BBBarometer")
 ```
 
 ## Introduction
@@ -126,14 +126,37 @@ trim <- function(data, start, end) {
 # col = {'one', 'two', 'three'}
 scatterplot <- function(data, sensor_type, col, 
                         start=0, end=1,
-                        size=1, alpha=0.9) {
+                        size=1, alpha=0.9,
+                        stem=FALSE, derivs=0) {
   graph <- data %>%
     filter(type==sensor_type) %>%
     select(time, col) %>%
-    trim(start, end) %>%
-    ggplot(aes_string(x="time", y=col))
+    trim(start, end)
   
-  graph <- graph + geom_line(colour = "#1a9850") + geom_point(colour = "#1a9850") + scale_y_continuous()
+  # apply as many derivs as are specified
+  i = 0
+  while (i < derivs) {
+  #   data_d1 <- data_d0 %>%
+  # filter(type == "pressure") %>%
+  # mutate(one = c(0, diff(one))) %>%
+  # bind_rows(data %>% filter(type=="touch"))
+    data <- data %>%
+      mutate(col = c(0, diff(col)))
+  }
+  
+  graph <- graph %>%
+    ggplot(aes_string(x="time", y=col)) + 
+    geom_point(colour = "#1a9850") + 
+    scale_y_continuous()
+  
+  if (!stem) {
+    graph <- graph + 
+      geom_line(colour = "#1a9850")
+  } else {
+    graph <- graph + 
+      geom_segment(aes(xend=time, yend=0), color = "#1a9850") +
+      geom_hline(yintercept=0, linetype=2, color="#666666")
+  }
   
   # add title and subtitle
   duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
@@ -164,7 +187,7 @@ scatterplot <- function(data, sensor_type, col,
   return(graph)
 }
 
-scatterplot(data, "pressure", "one", 0.7, 0.75)
+# scatterplot(data, "pressure", "one", 0.7, 0.75)
 ```
 
 ## Phase One: finding touch occurrence from pressure data
@@ -226,7 +249,29 @@ scatterplot_d <- function(data, sensor_type, col, start, end) {
 #  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
 ```
 
-It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as 
+It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as label "one".
+
+#### wait this is dumb
+Fast forward 1 year in the future. I'm a bit better with tidyverse now. Which derivative of pressure data do we really want to use? We could even use multiple! Think about it; the first derivative centers the data around 0 so we may look for positive values, then negative values. The second derivative may look for rates of change along here, which might be important, ya know?
+```{r}
+# Let's take repeated derivatives of pressure and see how they are impacted by touch input.
+data_d0 <- data
+data_d1 <- data_d0 %>%
+  filter(type == "pressure") %>%
+  mutate(one = c(0, diff(one))) %>%
+  bind_rows(data %>% filter(type=="touch"))
+data_d2 <- data_d1 %>%
+  filter(type == "pressure") %>%
+  mutate(one = c(0, diff(one))) %>%
+  bind_rows(data %>% filter(type=="touch"))
+
+a = 0.6
+b = a + 0.05
+
+scatterplot(data_d0, "pressure", "one", start=a, end=b)
+scatterplot(data_d1, "pressure", "one", start=a, end=b, stem=TRUE)
+scatterplot(data_d2, "pressure", "one", start=a, end=b, stem=TRUE)
+```
 
 ### Prep data
 
@@ -287,8 +332,8 @@ build_df <- function(pressure_data, width) {
       # then don't process it.
       # 
       # instead, start labeling subsequent pressure_events as 1
-      # quota is a "hyperparameter" for labeling data
-      # this line defines the size of the quota
+      # quota is a "hyperparameter" for labeling data:
+      #     the number of points recorded following a touch event
       quota = 2
     } else {  # event$type[1] == "pressure"
       # then label as 1 only if we need to meet the quota
@@ -649,7 +694,7 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
 ```
 
 <TODO>
-Wait hold up. I need to modify the function above so that when I mine exp_data, I also get a feature from the pressure data. I'll need a helper function so that I can input a vector of times and the p-model data, and it'll mine features for me. I thought about re-using pull_waveforms, but that pulls from zero-centered data. My p-model goes between 0 and 1, so........ maybe check the three values before and the five values after and get the max. That'll be my feature.
+Wait hold up. I need to modify the function above so that when I mine exp_data, I also get a feature from the pressure data. This will be used to predict the radius of touch input. I'll need a helper function so that I can input a vector of times and the p-model data, and it'll mine features for me. I thought about re-using pull_waveforms, but that pulls from zero-centered data. My p-model goes between 0 and 1, so........ maybe check the three values before and the five values after and get the max. That'll be my feature.
 
 ```{r}
 
