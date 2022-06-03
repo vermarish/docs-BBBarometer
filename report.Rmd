@@ -27,20 +27,26 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 
 
 ```{r include=FALSE}
-tidbits <- read_csv("data/experiment_1.csv")
+# tidbits <- read_csv("data/experiment_1.csv")
+# TODO uncomment above
+tidbits <- read_csv("data/sporadic.csv")
 ```
 
+## Data Cleaning
+
+<!--
 Type 1: accelerometer data (includes x/y/z)  
 Type 4: gyroscope data (includes x/y/z)  
 Type 6: pressure data  
 Type -27: touch data  
 
-Type -1: uptimeMillisecond clock
-Type -2: elapsedRealtimeNanos clock
-Type -3: i don't remember, but it's prob not important
+Type -1: uptimeMillisecond clock  
+Type -2: elapsedRealtimeNanos clock  
+Type -3: i don't remember, but it's prob not important  
+-->
+
 
 ```{r functions for cleaning, include=FALSE}
-
 type_map <- function(type) {
   if (type == -27) {
     return("touch")
@@ -97,7 +103,7 @@ clean_tidbits <- function(tidbits) {
 }
 ```
 
-```{r functions for viewing}
+```{r functions for viewing, include=FALSE}
 data <- clean_tidbits(tidbits)
 
 first_touch = data %>%
@@ -128,39 +134,41 @@ scatterplot <- function(data, sensor_type, col,
                         start=0, end=1,
                         size=1, alpha=0.9,
                         stem=FALSE, derivs=0) {
-  graph <- data %>%
+  time_series <- data %>%
     filter(type==sensor_type) %>%
-    select(time, col) %>%
-    trim(start, end)
+    select(time, col)
   
   # apply as many derivs as are specified
   i = 0
   while (i < derivs) {
-  #   data_d1 <- data_d0 %>%
-  # filter(type == "pressure") %>%
-  # mutate(one = c(0, diff(one))) %>%
-  # bind_rows(data %>% filter(type=="touch"))
-    data <- data %>%
-      mutate(col = c(0, diff(col)))
+    values = time_series[which(names(time_series) == col)][[1]]
+    values_d = c(0, diff(values))
+    time_series[which(names(time_series) == col)][[1]] = values_d
+    i = i + 1
   }
   
-  graph <- graph %>%
+  graph <- time_series %>%
+    trim(start, end) %>%
     ggplot(aes_string(x="time", y=col)) + 
     geom_point(colour = "#1a9850") + 
     scale_y_continuous()
   
   if (!stem) {
     graph <- graph + 
-      geom_line(colour = "#1a9850")
+      geom_line(colour = "#1a9850")  # plot signal using line
   } else {
     graph <- graph + 
-      geom_segment(aes(xend=time, yend=0), color = "#1a9850") +
-      geom_hline(yintercept=0, linetype=2, color="#666666")
+      geom_segment(aes(xend=time, yend=0), color = "#1a9850")
+  }
+  
+  if (sum(sign(range(time_series[which(names(time_series) == col)][[1]]))) == 0) {
+    graph <- graph + geom_hline(yintercept=0, linetype=2, color="#666666")
   }
   
   # add title and subtitle
   duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
   title <- paste(sensor_type, col)
+  if (derivs > 0) { title <- paste(title, "--", derivs, "derivatives") }
   graph <- graph + 
     ylab(title) + 
     ggtitle(label=title,
@@ -171,25 +179,23 @@ scatterplot <- function(data, sensor_type, col,
     filter(type=="touch") %>% 
     trim(start, end)
   tap_times <- taps$time
-  for (tap_time in tap_times) {
-    graph <- graph + geom_vline(xintercept = tap_time, colour= "#1a9850", size=size, alpha=alpha)
-  }
+  graph <- graph +
+    geom_vline(aes(xintercept=time), data=taps, 
+               colour="#ED1C24", size=size, alpha=alpha)
   
   # Plot type "touch_predict"
   guesses <- data %>%
     filter(type=="touch_predict") %>%
     trim(start, end)
-  guess_times <- guesses$time
-  for (guess_time in guess_times) {
-    graph <- graph + geom_vline(xintercept = guess_time, colour="#f46d43", size=size, alpha=alpha)
-  }
+  graph <- graph +
+    geom_vline(aes(xintercept=time), data=guesses, 
+               colour="#00FF00", size=size, alpha=alpha)
   
   return(graph)
 }
-
-# scatterplot(data, "pressure", "one", 0.7, 0.75)
+scatterplot(data, "pressure", "one", 0.75, 0.85, derivs=1, stem=TRUE)
 ```
-
+ 
 ## Phase One: finding touch occurrence from pressure data
 
 Now to detect touch occurrence. I could do something dumb and threshold the pressure data, or I could do something clever and train a model. Perhaps I keep a buffer of the last four pressure readings, or simply the last four changes in pressure reading. This will be tuple of 4 predictors. To form a training dataset, I need responses; perhaps the four-tuple nearest in time
@@ -204,49 +210,10 @@ can be categorized as 1, and all other four-tuples (excepting maybe the neighbor
 
 After training a binary classifier (logit distribution), we then threshold on the logit probability. 
 
----
-
-Before I mine the first derivative as my feature, why don't I modify my scatterplot function to show that derivative.
 ```{r}
-scatterplot_d <- function(data, sensor_type, col, start, end) {
-
-  # compute the derivative of the specified column
-  col_index <- which(names(data) == col)
-  
-  sensor_data <- data %>%
-    filter(type == sensor_type)
-  
-  col_vals <- sensor_data[col_index]
-  
-  left <- col_vals %>% 
-    slice(1:(nrow(col_vals)-1))
-  right <- col_vals %>% 
-    slice(2:(nrow(col_vals)))
-  
-  deriv <- (right - left) %>%
-    select(deriv = one)
-  
-  # bind this as a new column
-  sensor_data <- sensor_data %>%
-    slice(2:nrow(sensor_data)) %>%
-    bind_cols(deriv)
-  
-  # add the rows for touch entries back in
-  touch_data <- data %>%
-    filter(type=="touch") %>%
-    mutate(deriv = NA)
-  
-  treated_data <- bind_rows(sensor_data, touch_data)
-  
-  scatterplot(data=treated_data, 
-              sensor_type=sensor_type,
-              col="deriv",
-              start=start,
-              end=end)
-}
-
-#scatterplot_d(data, "pressure", "one", 0.5, 0.55) +
-#  geom_hline(yintercept=0, colour="#999999", linetype="dashed")
+scatterplot(data, "pressure", "one", 0.5, 0.55, derivs=0)
+scatterplot(data, "pressure", "one", 0.5, 0.55, derivs=1)
+scatterplot(data, "pressure", "one", 0.5, 0.55, derivs=2)
 ```
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as label "one".
@@ -265,10 +232,11 @@ data_d2 <- data_d1 %>%
   mutate(one = c(0, diff(one))) %>%
   bind_rows(data %>% filter(type=="touch"))
 
-a = 0.6
-b = a + 0.05
+a = 0.7
+b = a + 0.2
 
 scatterplot(data_d0, "pressure", "one", start=a, end=b)
+scatterplot(data, "gyroscope", "one", start=a, end=b, stem=TRUE)
 scatterplot(data_d1, "pressure", "one", start=a, end=b, stem=TRUE)
 scatterplot(data_d2, "pressure", "one", start=a, end=b, stem=TRUE)
 ```
