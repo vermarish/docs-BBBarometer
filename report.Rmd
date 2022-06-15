@@ -27,9 +27,10 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 
 
 ```{r include=FALSE}
-# tidbits <- read_csv("data/experiment_1.csv")
-# TODO uncomment above
-tidbits <- read_csv("data/sporadic.csv")
+tidbits <- read_csv("data/experiment_1.csv")
+
+# TODO uncomment below
+tidbits <- read_csv("data/trial.csv")
 ```
 
 ## Data Cleaning
@@ -45,158 +46,13 @@ Type -2: elapsedRealtimeNanos clock
 Type -3: i don't remember, but it's prob not important  
 -->
 
-
-```{r functions for cleaning, include=FALSE}
-type_map <- function(type) {
-  if (type == -27) {
-    return("touch")
-  } else if (type == 1) {
-    return("accelerometer")
-  } else if (type == 4) {
-    return("gyroscope")
-  } else if (type == 6) {
-    return("pressure")
-  } else {
-    return("unknown")
-  }
-}
-
-clean_tidbits <- function(tidbits) {
-  ## Get the clocking tidbits
-  clocking <- tidbits %>%
-    filter(type == -1 | type == -2)
-  
-  uptimeMillis <- clocking %>%
-    filter(type == -1) %>%
-    select(time)
-  
-  elapsedRealtimeNanos <- clocking %>%
-    filter(type == -2) %>%
-    select(time)
-  
-  uptimeMillisStart = min(uptimeMillis)
-  uptimeMillisEnd = max(uptimeMillis)
-  elapsedRealtimeNanosStart = min(elapsedRealtimeNanos)
-  elapsedRealtimeNanosEnd = max(elapsedRealtimeNanos)
-  
-  ## Select the data tidbits
-  tidbits <- tidbits %>% 
-    filter(type == -27 | type > 0)
-  
-  calibrated <- tidbits %>%
-    filter(type != -27)
-  
-  # Calibrate the touch-data tidbits
-  m = (elapsedRealtimeNanosEnd - elapsedRealtimeNanosStart) / (uptimeMillisEnd - uptimeMillisStart)
-  b = elapsedRealtimeNanosEnd - m*uptimeMillisEnd
-  
-  uncalibrated <- tidbits %>%
-    filter(type == -27) %>%
-    mutate(time = m*time + b)
-  
-  ## Combine results and re-format type as string
-  tidbits <- bind_rows(calibrated, uncalibrated) %>%
-    mutate(type = sapply(type, type_map)) %>%
-    arrange(time)
-  
-  return(tidbits)
-}
+```{r}
+# Clean tidbits and create tibble `data`
+source("cleaning_and_plotting.R")
 ```
 
-```{r functions for viewing, include=FALSE}
-data <- clean_tidbits(tidbits)
 
-first_touch = data %>%
-  filter(type=="touch") %>%
-  select(time) %>%
-  min %>%
-  as.double
-
-last_touch = data %>% 
-  filter(type=="touch") %>%
-  select(time) %>%
-  max %>%
-  as.double
-
-range = last_touch - first_touch
-
-## 0 <= start < end <= 1
-trim <- function(data, start, end) {
-  open = range*start + first_touch
-  close = range*end + first_touch
-  
-  return(data %>%
-           filter(time > open & time < close))
-}
-
-# col = {'one', 'two', 'three'}
-scatterplot <- function(data, sensor_type, col, 
-                        start=0, end=1,
-                        size=1, alpha=0.9,
-                        stem=FALSE, derivs=0) {
-  time_series <- data %>%
-    filter(type==sensor_type) %>%
-    select(time, col)
-  
-  # apply as many derivs as are specified
-  i = 0
-  while (i < derivs) {
-    values = time_series[which(names(time_series) == col)][[1]]
-    values_d = c(0, diff(values))
-    time_series[which(names(time_series) == col)][[1]] = values_d
-    i = i + 1
-  }
-  
-  graph <- time_series %>%
-    trim(start, end) %>%
-    ggplot(aes_string(x="time", y=col)) + 
-    geom_point(colour = "#1a9850") + 
-    scale_y_continuous()
-  
-  if (!stem) {
-    graph <- graph + 
-      geom_line(colour = "#1a9850")  # plot signal using line
-  } else {
-    graph <- graph + 
-      geom_segment(aes(xend=time, yend=0), color = "#1a9850")
-  }
-  
-  if (sum(sign(range(time_series[which(names(time_series) == col)][[1]]))) == 0) {
-    graph <- graph + geom_hline(yintercept=0, linetype=2, color="#666666")
-  }
-  
-  # add title and subtitle
-  duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
-  title <- paste(sensor_type, col)
-  if (derivs > 0) { title <- paste(title, "--", derivs, "derivatives") }
-  graph <- graph + 
-    ylab(title) + 
-    ggtitle(label=title,
-            subtitle=paste("Data captured across", duration, "seconds."))
-  
-  # Plot type "touch"
-  taps <- data %>%
-    filter(type=="touch") %>% 
-    trim(start, end)
-  tap_times <- taps$time
-  graph <- graph +
-    geom_vline(aes(xintercept=time), data=taps, 
-               colour="#ED1C24", size=size, alpha=alpha)
-  
-  # Plot type "touch_predict"
-  guesses <- data %>%
-    filter(type=="touch_predict") %>%
-    trim(start, end)
-  graph <- graph +
-    geom_vline(aes(xintercept=time), data=guesses, 
-               colour="#00FF00", size=size, alpha=alpha)
-  
-  return(graph)
-}
-scatterplot(data, "pressure", "one", 0.75, 0.85, derivs=1, stem=TRUE)
-```
- 
-## Phase One: finding touch occurrence from pressure data
+## 1: Finding touch occurrence from pressure data
 
 Now to detect touch occurrence. I could do something dumb and threshold the pressure data, or I could do something clever and train a model. Perhaps I keep a buffer of the last four pressure readings, or simply the last four changes in pressure reading. This will be tuple of 4 predictors. To form a training dataset, I need responses; perhaps the four-tuple nearest in time
 
@@ -208,42 +64,21 @@ nearest in time before            nearest in time after
 
 can be categorized as 1, and all other four-tuples (excepting maybe the neighboring ones) can be categorized as 0.
 
-After training a binary classifier (logit distribution), we then threshold on the logit probability. 
+After training a binary classifier (logit distribution), we will then threshold on the logit probability. 
+
+### 1a: Preview the data
 
 ```{r}
-scatterplot(data, "pressure", "one", 0.5, 0.55, derivs=0)
-scatterplot(data, "pressure", "one", 0.5, 0.55, derivs=1)
-scatterplot(data, "pressure", "one", 0.5, 0.55, derivs=2)
+scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
+scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1)
+scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2)
 ```
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as label "one".
 
-#### wait this is dumb
-Fast forward 1 year in the future. I'm a bit better with tidyverse now. Which derivative of pressure data do we really want to use? We could even use multiple! Think about it; the first derivative centers the data around 0 so we may look for positive values, then negative values. The second derivative may look for rates of change along here, which might be important, ya know?
-```{r}
-# Let's take repeated derivatives of pressure and see how they are impacted by touch input.
-data_d0 <- data
-data_d1 <- data_d0 %>%
-  filter(type == "pressure") %>%
-  mutate(one = c(0, diff(one))) %>%
-  bind_rows(data %>% filter(type=="touch"))
-data_d2 <- data_d1 %>%
-  filter(type == "pressure") %>%
-  mutate(one = c(0, diff(one))) %>%
-  bind_rows(data %>% filter(type=="touch"))
+### 1b: Label the data
 
-a = 0.7
-b = a + 0.2
-
-scatterplot(data_d0, "pressure", "one", start=a, end=b)
-scatterplot(data, "gyroscope", "one", start=a, end=b, stem=TRUE)
-scatterplot(data_d1, "pressure", "one", start=a, end=b, stem=TRUE)
-scatterplot(data_d2, "pressure", "one", start=a, end=b, stem=TRUE)
-```
-
-### Prep data
-
-Okay so let's do it. Let's use the first 60\% of the data as training data, and the last 40\% as testing data. With 161 data points in experiment 1, this is 101 data points in training and 69 data points in testing.
+Let's use the first 60\% of the data as training data, and the last 40\% as testing data. With 161 data points in experiment 1, this is 101 data points in training and 69 data points in testing.
 
 ```{r}
 prop = 0.6  # proportion of training data
@@ -265,194 +100,68 @@ test <- data %>%
   filter(time > cutoff) %>%
   filter(type %in% c("pressure", "touch")) %>%
   arrange(time)
+```
 
+Next, we build a dataframe containing snapshots of pressure data labeled with 1 or 0
 
-## Next we build train_df
-# input: a dataframe containing pressure_data in a column
-# output: a dataframe where each row is the result of point-wise multiplication 
-#         between factor 1 and factor 2, and is labeled.
-#         factor 1:  iterated difference of pressure signal
-#                    (a naive first derivative)
-#         factor 2:  an impulse of specified width
-#                    e.g. width=3 -> factor_2=[0 ... 0 1 1 1 0 ... 0]
-#                    (the impulse is iterated for each row)
-#       
-#
-# and a 5th column for the label
-build_df <- function(pressure_data, width) {
-  df <- data.frame(matrix(rep(NA,width + 1), nrow=1))
-  df <- na.omit(df)
-  colnames(df)[ncol(df)] = "label"
-  
-  i = 1
-  quota = 0
-  while (i <= nrow(pressure_data) - width) {
-    event <- pressure_data %>%
-      slice(i:(i+width+1))
-    
-    pressure_reading <- event %>%
-      filter(type == "pressure") %>%
-      head(n=width+1) %>%
-      .$one
-    
-    
-    if (event$type[1] == "touch") {
-      # then don't process it.
-      # 
-      # instead, start labeling subsequent pressure_events as 1
-      # quota is a "hyperparameter" for labeling data:
-      #     the number of points recorded following a touch event
-      quota = 2
-    } else {  # event$type[1] == "pressure"
-      # then label as 1 only if we need to meet the quota
-      if (quota > 0) {
-        label = 1
-        quota = quota - 1
-      } else {
-        label = 0
-      }
-      df[nrow(df)+1,] = c(diff(pressure_reading), label)
-    }
-    i = i + 1
-  }
-  return(df)
-}
+```{r}
+source("phase_one_functions.R")
 ```
 
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 ```{r}
-# input: tibbles with the tidbits, and a width parameter
-# this function will restructure the tidbits for regression,
-#                    train the model,
-#                    and return the fitting for train and test.
-# the width describes the size of the window passed across the signal
-# the windowed signal is used in logistic regression
-train_pressure_model <- function(train, test, width=4) {
-  buffer = width
+
+touch_confidence <- train_pressure_model(train, test, width=4)
+
+scatterplot_pressure_model <- function(data, touch_confidence, a, b) {
+  touch_range <- data %>% filter(type=="touch") %>% select(time) %>% range()
+  touch_span <- touch_range %>% diff()
+  first_touch <- touch_range[1]
+  open = touch_span*a + first_touch
+  close = touch_span*b + first_touch
   
-  ## Arrange the data
-  train_df <- build_df(train, width=width)
-  test_df <- build_df(test, width=width)
+  # try testing red, training #d781d5
+  scatterplot(touch_confidence, "pressure", "one", a, b) +
+  geom_line(data=touch_confidence %>% 
+              filter(time > open & time < close),
+            aes(y=p*diff(range(one)) + min(one),
+                colour=set))
   
-  ## Fit the model
-  touch_model <- glm(label ~ ., 
-                     data=train_df,
-                     family = "binomial")
+  foo <- scatterplot(data, "pressure", "one", a, b) + ggtitle("")
+  bar <- touch_confidence %>%
+    filter(time > open & time < close) %>%
+    ggplot() +
+    geom_line(aes(x=time, y=p, color=set)) +
+    scale_x_continuous(limits=c(open, close)) +
+    scale_y_continuous(limits=c(0,1)) +
+    geom_hline(yintercept=0.5, linetype=2, color="gray")
+    
   
-  ## Handle the values fitted in training
-  # Store the fitted values
-  result_training <- bind_cols(train %>% 
-                        filter(type == "pressure") %>% 
-                        slice((buffer):(buffer+nrow(train_df)-1)),
-                      touch_model$fitted.values) %>%
-    rename(p = ...6)
-  
-  # Shift the fitted values
-  shift <- 3
-  result_training_shifted <- result_training
-  result_training_shifted$p <- c(
-    result_training_shifted$p[(shift+1):nrow(result_training_shifted)],
-    rep(0, shift)
-  )
-  
-  ## Handle the values predicted in testing
-  # Compute the predicted values
-  output <- predict(touch_model, 
-          newdata=test_df)
-  fitted.values <- 1/(1+exp(-1*(output)))
-  
-  # Store the predicted values
-  result_testing <- bind_cols(test %>% 
-                        filter(type == "pressure") %>% 
-                        slice((buffer):(buffer+nrow(test_df)-1)),
-                      fitted.values) %>%
-    rename(p = ...6)
-  
-  # Shift the fitted
-  result_testing_shifted <- result_testing
-  result_testing_shifted$p <- c(
-    result_testing_shifted$p[(shift+1):nrow(result_testing_shifted)],
-    rep(0, shift)
-  )
-  
-  result <- list()
-  result$training <- result_training_shifted
-  result$testing <- result_testing_shifted
-  return(result)
+  ggarrange(foo, bar,
+            ncol=1, nrow=2,
+            labels=c("sensor and touch input","model confidence"),
+            heights=c(1.5,1))
 }
+```
 
-result_pair <- train_pressure_model(train, test, width=4)
-
-scatterplot_pressure_model <- function(data, result_pair, a, b) {
-  scatterplot(data, "pressure", "one", a, b) +
-  geom_line(data=result_pair$testing %>% trim(a,b),
-            aes(y= p*diff(range(one)) + min(one)),
-            colour="red") +
-  geom_line(data=result_pair$training %>% trim(a,b),
-            aes(y= p*diff(range(one)) + min(one)),
-            colour="#d781d5")
-}
-
-scatterplot_pressure_model(data, result_pair, a=0.55, b=0.65)
+```{r}
+a = 0.5
+w = 0.1
+scatterplot_pressure_model(data, touch_confidence, a=a, b=a+w)
 ```
 Okay. Now I've got two nice neat functions to pipe training and testing data through a model, and graphically view the results. Let's evaluate the effect of thresholding the modeled confidence of a touch event.
 
 ```{r}
-# Input a vector containing integers in order
-# Collapse chains of many consecutive integers into a single integer
-# e.g. 2 4 5 6 8 9 11 12
-#  ->  2 4-5-6 8-9 11-12
-#  ->  2 4 8 11
-eliminate_consecutive_integers <- function(integers) {
-  # strategy: shift the entries of the lift by one and compare it against itself
-  first <- integers[1:length(integers)-1]
-  last <- integers[2:length(integers)]
-  last_decrement <- last - 1
-  
-  
-  # the first entry is always valid, but this strategy requires it be indexed separately.
-  result <- c(integers[1], 
-              last[first != last_decrement])
-  return(result)
-}
+thresholded <- threshold_pressure(touch_confidence, threshold=0.5) %>%
+  bind_rows(data %>% filter(type=="touch"))
 
+a=0.7
+w=0.1
 
-# Input a dataframe with pressure data and the modeled p-confidence of touch occurrence.
-# Include the value at which to threshold.
-threshold_pressure <- function(result, threshold=0.4) {
-  indices <- which(result$p > threshold) %>%
-    eliminate_consecutive_integers
-  
-  occurrence_times <- result %>%
-    slice(indices) %>%
-    .$time
-  
-  occurrence_df <- data.frame(type="touch_predict",
-             time=occurrence_times,
-             one=0,
-             two=0,
-             three=0,
-             p=0)
-  
-  thresholded <- bind_rows(result, occurrence_df) %>%
-    arrange(time)
-  
-  return(thresholded)
-}
-
-thresholded_training <- threshold_pressure(result_pair$testing, threshold=0.5) %>%
-  bind_rows(test %>% filter(type=="touch"))
-
-thresholded_testing <- threshold_pressure(result_pair$testing, threshold=0.5) %>%
-  bind_rows(test %>% filter(type=="touch"))
-
-scatterplot(thresholded_testing, 
-            sensor_type="pressure", col="one",
-            start=0.8, end=0.9,
-            size=1, alpha=0.7)
+scatterplot_pressure_model(thresholded, touch_confidence,
+                           a=a, b=a+w)
 ```
-
 
 
 
@@ -473,7 +182,7 @@ model <- data %>%
 model %>% group_by(type) %>% count()
 
 a=0.85
-scatterplot(model, "gyroscope", "one", start=a, end=a+0.05, alpha=0.8)
+scatterplot(model, "gyroscope", "one", start=a, end=a+0.05)
 ```
 
 Okay next phase! Given touch input (or a proxy for its occurrence), can I identify a relationship between gyroscope data and the location of the touch input?   
