@@ -31,21 +31,11 @@ tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
 tidbits <- read_csv("data/trial.csv")
-#tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
+tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
 ```
 
 ## Data Cleaning
 
-<!--
-Type 1: accelerometer data (includes x/y/z)  
-Type 4: gyroscope data (includes x/y/z)  
-Type 6: pressure data  
-Type -27: touch data  
-
-Type -1: uptimeMillisecond clock  
-Type -2: elapsedRealtimeNanos clock  
-Type -3: i don't remember, but it's prob not important  
--->
 
 ```{r}
 # Clean tidbits and create tibble `data`
@@ -71,8 +61,8 @@ After training a binary classifier (logit distribution), we will then threshold 
 
 ```{r}
 scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
-scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1)
-scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2)
+scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1, stem=TRUE)
+scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2, stem=TRUE)
 ```
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as label "one".
@@ -121,7 +111,7 @@ threshold = 0.35
 thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
   bind_rows(data %>% filter(type=="touch"))
 
-a=0.58
+a=0.7
 w=0.2
 
 scatterplot_pressure_model(thresholded, touch_confidence,
@@ -161,53 +151,7 @@ Using a signal processing analogy, PPV describes how much of the measurement is 
 
 Let's write some code to measure these quantities.
 
-```{r}
-dt = 4e7
-margin = 5*dt
-# dt = 4e7 for pressure sensor
-# we'll use a margin of, what, 5 dt's ?
-
-# touch event: annotate either detected or undetected  (true_positive or false_negative)
-# touch_predict event: annotate either true or false   (true_positive or false_positive)
-
-all_events <- thresholded %>%
-  filter(type %in% c("touch", "touch_predict")) %>%
-  arrange(time) %>%
-  # label each event falsely before iterating through and finding true positives
-  mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
-
-touch_data <- all_events %>% filter(type == "touch")
-touch_predict_data <- all_events %>% filter(type == "touch_predict")
-
-i = 1
-j = 1
-while (i <= nrow(touch_data) & j <= nrow(touch_predict_data)) {
-  d = touch_data[["time"]][i] - touch_predict_data[["time"]][j]
-  if (abs(d) < margin) {
-    touch_data[["class"]][i] = "TP"
-    touch_predict_data[["class"]][j] = "TP"
-  }
-  if (d < 0)  { i = i + 1 }  else  { j = j + 1 }
-}
-
-classifications <- bind_rows(touch_data, touch_predict_data) %>%
-  arrange(time) %>%
-  filter(!(type == "touch_predict" & class == "TP"))  %>% # each TP shows up twice.
-                                                          # once for touch,
-                                                          # once for touch_predict.
-  select(class) %>%
-  table()
-
-TP <- classifications["TP"]
-FP <- classifications["FP"]
-FN <- classifications["FN"]
-
-PPV = TP/(TP+FP)
-TPR = TP/(TP+FN)
-```
-
-
-Cool! Let's compute PPV and TPR for a bunch of different thresholds.
+We'll compute PPV and TPR for a bunch of different thresholds.
 ```{r}
 dt = 4e7
 margin = 5*dt

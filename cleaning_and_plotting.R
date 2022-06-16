@@ -1,3 +1,16 @@
+
+
+# Type 1: accelerometer data (includes x/y/z)  
+# Type 4: gyroscope data (includes x/y/z)  
+# Type 6: pressure data  
+# Type -27: touch data  
+# 
+# Type -1: uptimeMillisecond clock  
+# Type -2: elapsedRealtimeNanos clock  
+# Type -3: i don't remember, but it's prob not important  
+
+
+
 type_map <- function(type) {
   if (type == -27) {
     return("touch")

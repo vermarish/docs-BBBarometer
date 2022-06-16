@@ -1,5 +1,5 @@
 # For labeling snapshots of pressure data with 1 or 0
-# input: a dataframe containing pressure_data in a column
+# input: a dataframe containing pressure data and touch data
 # output: a dataframe where each row is the result of point-wise multiplication 
 #         between factor 1 and factor 2, and is labeled.
 #         factor 1:  iterated difference of pressure signal
@@ -19,7 +19,7 @@ build_df <- function(pressure_data, width) {
   quota = 0
   while (i <= nrow(pressure_data) - width) {
     event <- pressure_data %>%
-      slice(i:(i+width+1))
+      slice(i:(i+width+3))
     
     pressure_reading <- event %>%
       filter(type == "pressure") %>%
@@ -32,7 +32,7 @@ build_df <- function(pressure_data, width) {
       # 
       # instead, start labeling subsequent pressure_events as 1
       # quota is a "hyperparameter" for labeling data:
-      #     the number of points recorded following a touch event
+      #     the number of windows recorded following a touch event
       quota = 2
     } else {  # event$type[1] == "pressure"
       # then label as 1 only if we need to meet the quota
