@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(GGally) # for ggpairs scatterplot matrix
 library(ggpubr) # for multiple ggplots in one figure
 library(tidyverse)
+library(glmnet)
+
 ## Filepath on my desktop
 # setwd("E:\\Desktop\\docs-BBBarometer")
 
@@ -31,7 +33,7 @@ tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
 tidbits <- read_csv("data/trial.csv")
-tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
+#tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
 ```
 
 ## Data Cleaning
@@ -104,19 +106,28 @@ source("phase_one_functions.R")
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 ```{r}
+# this is just pressure data
 touch_confidence <- train_pressure_model(train, test, width=4)
 
-threshold = 0.35
+threshold = 0.22
 
+# this includes touch_predict and touch
 thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
   bind_rows(data %>% filter(type=="touch"))
 
-a=0.7
-w=0.2
+touch_predicts <- thresholded %>% select(-set) %>% filter(type=="touch_predict")
+
+a=0.8
+w=0.1
 
 scatterplot_pressure_model(thresholded, touch_confidence,
                            a=a, b=a+w,
                            threshold=threshold)
+
+scatterplot_pressure_model(bind_rows(data, touch_predicts), touch_confidence,
+                           a=a, b=a+w,
+                           threshold=threshold,
+                           sensor="gyroscope", col="one")
 ```
 
 In the top figure, the red vertical lines are physical taps. The grey signal is pressure data.
@@ -162,7 +173,7 @@ performance_by_threshold <- tibble(threshold=numeric(),
                                    TPR=numeric())
 
 # TODO increment by 0.01
-for (threshold in seq(0.05, 0.6, 0.005)) {
+for (threshold in seq(0.05, 0.9, 0.01)) {
   thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
     bind_rows(data %>% filter(type=="touch"))
   
@@ -171,6 +182,12 @@ for (threshold in seq(0.05, 0.6, 0.005)) {
     arrange(time) %>%
     # label each event falsely before iterating through and finding true positives
     mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
+    
+  # only evaluate with the testing data, duh!
+  all_events <- all_events %>% 
+    mutate(set = sapply(time, 
+                        function(t) {if (t > cutoff) "testing" else "training"})) %>%
+    filter(set == "testing")
   
   # two-pointer iteration through touch_data and touch_predict_data  (O(n))
   touch_data <- all_events %>% filter(type == "touch")
@@ -217,8 +234,20 @@ performance_by_threshold %>%
   geom_line(size=1) +
   geom_point() +
   scale_y_continuous(limits=c(0,1)) +
-  scale_x_continuous(limits=c(0,0.6))
+  scale_x_continuous(limits=c(0,1))
 ```
+#### TODO 
+1. I should try models with and without zero-intercepts.
+2. I should try models with and without some accelerometer data.
+3. I should double check whether logistic regression even makes sense, or if all linear models are identical.
+4. I should figure out a metric to compare model performance in testing vs training to avoid overfitting. Maybe peak PPV*TPR in either?
+5. Why are these PPV curves so weird?? 
+6. Why are these TPR curves so weird??
+7. Once I have a model that's good, is it going to do well on an independent data source?
+
+Well, at least I can typically do better than 80% PPV and 80% TPR.
+
+
 ```{r}
 
 ```
