@@ -158,3 +158,38 @@ threshold_pressure <- function(result, threshold=0.4) {
   
   return(thresholded)
 }
+
+
+
+
+# data: should contain touch tidbits and pressure tidbits
+# touch_confidence: should contain p tidbits
+scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0.5) {
+  touch_range <- data %>% filter(type=="touch") %>% select(time) %>% range()
+  touch_span <- touch_range %>% diff()
+  first_touch <- touch_range[1]
+  open = touch_span*a + first_touch
+  close = touch_span*b + first_touch
+  
+  # try testing red, training #d781d5
+  scatterplot(touch_confidence, "pressure", "one", a, b) +
+    geom_line(data=touch_confidence %>% 
+                filter(time > open & time < close),
+              aes(y=p*diff(range(one)) + min(one),
+                  colour=set))
+  
+  foo <- scatterplot(data, "pressure", "one", a, b) + ggtitle("")
+  bar <- touch_confidence %>%
+    filter(time > open & time < close) %>%
+    ggplot() +
+    geom_line(aes(x=time, y=p, color=set)) +
+    scale_x_continuous(limits=c(open, close)) +
+    scale_y_continuous(limits=c(0,1)) +
+    geom_hline(yintercept=threshold, linetype=2, color="gray")
+  
+  
+  ggarrange(foo, bar,
+            ncol=1, nrow=2,
+            labels=c("sensor and touch input","model confidence"),
+            heights=c(1.5,1))
+}

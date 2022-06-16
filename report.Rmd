@@ -10,9 +10,9 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
 library(GGally) # for ggpairs scatterplot matrix
 library(ggpubr) # for multiple ggplots in one figure
+library(tidyverse)
 ## Filepath on my desktop
 # setwd("E:\\Desktop\\docs-BBBarometer")
 
@@ -66,7 +66,7 @@ can be categorized as 1, and all other four-tuples (excepting maybe the neighbor
 
 After training a binary classifier (logit distribution), we will then threshold on the logit probability. 
 
-### 1a: Preview the data
+### 1a: Examine pressure data
 
 ```{r}
 scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
@@ -76,7 +76,7 @@ scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2)
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as label "one".
 
-### 1b: Label the data
+### 1b: Label pressure data with touch input
 
 Let's use the first 60\% of the data as training data, and the last 40\% as testing data. With 161 data points in experiment 1, this is 101 data points in training and 69 data points in testing.
 
@@ -108,64 +108,77 @@ Next, we build a dataframe containing snapshots of pressure data labeled with 1 
 source("phase_one_functions.R")
 ```
 
+### 1c: Predict touch input from pressure data
+
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 ```{r}
-
 touch_confidence <- train_pressure_model(train, test, width=4)
 
-scatterplot_pressure_model <- function(data, touch_confidence, a, b) {
-  touch_range <- data %>% filter(type=="touch") %>% select(time) %>% range()
-  touch_span <- touch_range %>% diff()
-  first_touch <- touch_range[1]
-  open = touch_span*a + first_touch
-  close = touch_span*b + first_touch
-  
-  # try testing red, training #d781d5
-  scatterplot(touch_confidence, "pressure", "one", a, b) +
-  geom_line(data=touch_confidence %>% 
-              filter(time > open & time < close),
-            aes(y=p*diff(range(one)) + min(one),
-                colour=set))
-  
-  foo <- scatterplot(data, "pressure", "one", a, b) + ggtitle("")
-  bar <- touch_confidence %>%
-    filter(time > open & time < close) %>%
-    ggplot() +
-    geom_line(aes(x=time, y=p, color=set)) +
-    scale_x_continuous(limits=c(open, close)) +
-    scale_y_continuous(limits=c(0,1)) +
-    geom_hline(yintercept=0.5, linetype=2, color="gray")
-    
-  
-  ggarrange(foo, bar,
-            ncol=1, nrow=2,
-            labels=c("sensor and touch input","model confidence"),
-            heights=c(1.5,1))
-}
-```
+threshold = 0.35
 
-```{r}
-a = 0.5
-w = 0.1
-scatterplot_pressure_model(data, touch_confidence, a=a, b=a+w)
-```
-Okay. Now I've got two nice neat functions to pipe training and testing data through a model, and graphically view the results. Let's evaluate the effect of thresholding the modeled confidence of a touch event.
-
-```{r}
-thresholded <- threshold_pressure(touch_confidence, threshold=0.5) %>%
+thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
   bind_rows(data %>% filter(type=="touch"))
 
-a=0.7
-w=0.1
+a=0.58
+w=0.2
 
 scatterplot_pressure_model(thresholded, touch_confidence,
-                           a=a, b=a+w)
+                           a=a, b=a+w,
+                           threshold=threshold)
 ```
 
+In the top figure, the red vertical lines are physical taps. The grey signal is pressure data.
+
+In the bottom figure, the red signal is the output of the "pressure→touch" model. When this signal crosses a threshold, the model predicts a touch, displayed as a blue dashed vertical line.
+
+<!-- Wow! That looks really good. I really hate proceeding forward without objective measures of everything I do. I really bet our model could be improved using lasso regression, and that would require hyperparameter tuning which is unreliable without a measurable error function, but "time to market" is of more importance. -->
 
 
-Wow! That looks really good. I really hate proceeding forward without objective measures of everything I do. I really bet our model could be improved using lasso regression, and that would require hyperparameter tuning which is unreliable without a measurable error function, but "time to market" is of more importance.
+
+### 1d: Evaluate model
+
+#### The metrics
+
+So we've got real touches (red lines) and predicted touches (dashed blue lines). 
+
+* When a red line is accompanied by a dashed blue line, that's a true positive ($TP$).
+
+* When a red line is not accompanied by a dashed blue line, that's a false negative ($FN$).
+
+* When a dashed blue line is not near any red line, that's a false positive ($FP$).
+
+* In this model, there is no meaningful notion of a true negative; there is nothing to count.
+
+So we've got three quantities we can work with, and three meaningful metrics. 
+
+What proportion of recorded events are actually real touches? This is the positive predictive value (PPV), equal to $\dfrac{TP}{TP+FP}$.
+
+What proportion of real touches is the model able to capture? This is the true positive rate (TPR), equal to $\dfrac{TP}{TP+FN}$
+
+Using a signal processing analogy, PPV describes how much of the measurement is noise, and TPR describes how much of the signal the measurement captures. A model that is too sensitive may have excellent TPR, but poor PPV as it keeps falsely triggering without a touch input. A model that is too strict may have excellent PPV, but poor TPR as it misses a lot of the signal.
+
+Let's write some code to measure these quantities.
+
+```{r}
+# dt = 4e7 for pressure sensor
+# we'll use a margin of, what, 5 dt's ?
+```
+
+### 1e: Improve model (TODO)
+
+
+## Phase 2: Mining features for direction of turn
+
+
+
+
+
+
+
+
+
+
 
 Let's assume our touch input is good. Let's mine the subsequent gyroscope data for features. 
 
