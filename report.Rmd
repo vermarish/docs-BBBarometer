@@ -161,8 +161,48 @@ Using a signal processing analogy, PPV describes how much of the measurement is 
 Let's write some code to measure these quantities.
 
 ```{r}
+dt = 4e7
+margin = 5*dt
 # dt = 4e7 for pressure sensor
 # we'll use a margin of, what, 5 dt's ?
+
+# touch event: annotate either detected or undetected  (true_positive or false_negative)
+# touch_predict event: annotate either true or false   (true_positive or false_positive)
+
+all_events <- thresholded %>%
+  filter(type %in% c("touch", "touch_predict")) %>%
+  arrange(time) %>%
+  # label each event falsely before iterating through and finding true positives
+  mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
+
+touch_data <- all_events %>% filter(type == "touch")
+touch_predict_data <- all_events %>% filter(type == "touch_predict")
+
+i = 1
+j = 1
+while (i <= nrow(touch_data) & j <= nrow(touch_predict_data)) {
+  d = touch_data[["time"]][i] - touch_predict_data[["time"]][j]
+  if (abs(d) < margin) {
+    touch_data[["class"]][i] = "TP"
+    touch_predict_data[["class"]][j] = "TP"
+  }
+  if (d < 0)  { i = i + 1 }  else  { j = j + 1 }
+}
+
+classifications <- bind_rows(touch_data, touch_predict_data) %>%
+  arrange(time) %>%
+  filter(!(type == "touch_predict" & class == "TP"))  %>% # each TP shows up twice.
+                                                          # once for touch,
+                                                          # once for touch_predict.
+  select(class) %>%
+  table()
+
+TP <- classifications["TP"]
+FP <- classifications["FP"]
+FN <- classifications["FN"]
+
+PPV = TP/(TP+FP)
+TPR = TP/(TP+FN)
 ```
 
 ### 1e: Improve model (TODO)
