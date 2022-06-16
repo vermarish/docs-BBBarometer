@@ -29,8 +29,9 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 ```{r include=FALSE}
 tidbits <- read_csv("data/experiment_1.csv")
 
-# TODO uncomment below
+# TODO just use the line above
 tidbits <- read_csv("data/trial.csv")
+#tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
 ```
 
 ## Data Cleaning
@@ -205,7 +206,81 @@ PPV = TP/(TP+FP)
 TPR = TP/(TP+FN)
 ```
 
-### 1e: Improve model (TODO)
+
+Cool! Let's compute PPV and TPR for a bunch of different thresholds.
+```{r}
+dt = 4e7
+margin = 5*dt
+
+
+performance_by_threshold <- tibble(threshold=numeric(), 
+                                   PPV=numeric(), 
+                                   TPR=numeric())
+
+# TODO increment by 0.01
+for (threshold in seq(0.05, 0.6, 0.005)) {
+  thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
+    bind_rows(data %>% filter(type=="touch"))
+  
+  all_events <- thresholded %>%
+    filter(type %in% c("touch", "touch_predict")) %>%
+    arrange(time) %>%
+    # label each event falsely before iterating through and finding true positives
+    mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
+  
+  # two-pointer iteration through touch_data and touch_predict_data  (O(n))
+  touch_data <- all_events %>% filter(type == "touch")
+  touch_predict_data <- all_events %>% filter(type == "touch_predict")
+  i = 1
+  j = 1
+  while (i <= nrow(touch_data) & j <= nrow(touch_predict_data)) {
+    d = touch_data[["time"]][i] - touch_predict_data[["time"]][j]
+    if (abs(d) < margin) {
+      touch_data[["class"]][i] = "TP"
+      touch_predict_data[["class"]][j] = "TP"
+    }
+    if (d < 0)  { i = i + 1 }  else  { j = j + 1 }
+  }
+  
+  classifications <- bind_rows(touch_data, touch_predict_data) %>%
+    arrange(time) %>%
+    filter(!(type == "touch_predict" & class == "TP"))  %>% # each TP shows up twice.
+                                                            # once for touch,
+                                                            # once for touch_predict.
+    select(class) %>%
+    table()
+  
+  TP <- classifications["TP"]
+  FP <- classifications["FP"]
+  FN <- classifications["FN"]
+  
+  TP <- if (is.na(TP)) 0 else TP
+  FP <- if (is.na(FP)) 0 else FP
+  FN <- if (is.na(FN)) 0 else FN
+  
+  PPV = TP/(TP+FP)
+  TPR = TP/(TP+FN)
+  
+  performance_by_threshold <- performance_by_threshold %>% 
+    add_row(threshold=threshold,
+            PPV=PPV,
+            TPR=TPR)
+}
+
+performance_by_threshold %>%
+  pivot_longer(cols = c(PPV, TPR), names_to = "metric") %>%
+  ggplot(aes(x=threshold, y=value, color=metric)) +
+  geom_line(size=1) +
+  geom_point() +
+  scale_y_continuous(limits=c(0,1)) +
+  scale_x_continuous(limits=c(0,0.6))
+```
+```{r}
+
+```
+### 1e: Tune model parameters
+
+### 1f: Improve model (TODO)
 
 
 ## Phase 2: Mining features for direction of turn
