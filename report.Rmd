@@ -29,10 +29,10 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 
 
 ```{r include=FALSE}
-tidbits <- read_csv("data/experiment_1.csv")
+#tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
-tidbits <- read_csv("data/trial.csv")
+#tidbits <- read_csv("data/trial.csv")
 tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
 ```
 
@@ -242,20 +242,37 @@ min_threshold <- performance_by_threshold %>%
   arrange(threshold) %>%
   slice(1) %>%
   pull(threshold)
-
 performance_by_threshold <- performance_by_threshold %>%
-  filter(threshold > min_threshold)
+  filter(threshold > min_threshold) %>%
+  mutate(prod=PPV*TPR, norm=sqrt(PPV^2+TPR^2))
 
-
+# Identify the best threshold value
+best_threshold <- performance_by_threshold %>% 
+  mutate(metric = norm) %>% # CHANGE THIS TO norm OR prod
+  arrange(desc(metric)) %>% 
+  slice(1) %>% 
+  pull(threshold)
+  
+  
 performance_by_threshold %>%
-  pivot_longer(cols = c(PPV, TPR), names_to = "metric") %>%
+  pivot_longer(cols = c(PPV, TPR, norm, prod), names_to = "metric") %>%
   ggplot(aes(x=threshold, y=value, color=metric)) +
   geom_line(size=1) +
   geom_point() +
-  scale_y_continuous(limits=c(0,1)) +
+  #scale_y_continuous(limits=c(0,1)) +
   # set 1 as the upper limit
   scale_x_continuous(limits=function(xlims) { pmax(xlims, c(0,1)) }) +
-  scale_color_discrete(labels = c("PPV (reliability)", "TPR ()"))
+  scale_color_manual(breaks = c("PPV", "TPR", "norm", "prod"), 
+                     values = c("#F8766D", "#619CFF", "#BBBBBB", "#999999"),
+                     labels = c("PPV (reliability, precision)", 
+                                "TPR (sensitivity, recall)", 
+                                "norm(PPV, TPR)",
+                                "PPV * TPR")) +
+  geom_vline(xintercept=best_threshold, linetype=2, color="#BBBBBB")
+
+performance_by_threshold %>%
+  ggplot(aes(x=TPR, y=PPV)) +
+  geom_line()
 ```
 
 
@@ -283,6 +300,7 @@ performance_by_threshold %>%
 
 Well, at least I can typically do better than 80% PPV and 80% TPR.
 
+#### chunk to run
 
 ```{r}
 
