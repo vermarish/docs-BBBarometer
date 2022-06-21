@@ -33,7 +33,7 @@ tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
 tidbits <- read_csv("data/trial.csv")
-#tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
+tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
 ```
 
 ## Data Cleaning
@@ -170,10 +170,13 @@ margin = 5*dt
 
 performance_by_threshold <- tibble(threshold=numeric(), 
                                    PPV=numeric(), 
-                                   TPR=numeric())
+                                   TPR=numeric(),
+                                   TP=numeric(),
+                                   FP=numeric(),
+                                   FN=numeric())
 
 # TODO increment by 0.01
-for (threshold in seq(0.05, 0.9, 0.01)) {
+for (threshold in seq(0.05, 0.98, 0.01)) {
   thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
     bind_rows(data %>% filter(type=="touch"))
   
@@ -225,8 +228,24 @@ for (threshold in seq(0.05, 0.9, 0.01)) {
   performance_by_threshold <- performance_by_threshold %>% 
     add_row(threshold=threshold,
             PPV=PPV,
-            TPR=TPR)
+            TPR=TPR,
+            TP=TP,
+            FP=FP,
+            FN=FN)
 }
+
+# Removing thresholds that are too low. See point 5 and 6.
+min_threshold <- performance_by_threshold %>% 
+  filter(TPR == max(TPR)) %>% 
+  arrange(desc(threshold)) %>% 
+  slice(5) %>% # let's pick a few threshold values
+  arrange(threshold) %>%
+  slice(1) %>%
+  pull(threshold)
+
+performance_by_threshold <- performance_by_threshold %>%
+  filter(threshold > min_threshold)
+
 
 performance_by_threshold %>%
   pivot_longer(cols = c(PPV, TPR), names_to = "metric") %>%
@@ -234,16 +253,33 @@ performance_by_threshold %>%
   geom_line(size=1) +
   geom_point() +
   scale_y_continuous(limits=c(0,1)) +
-  scale_x_continuous(limits=c(0,1))
+  # set 1 as the upper limit
+  scale_x_continuous(limits=function(xlims) { pmax(xlims, c(0,1)) }) +
+  scale_color_discrete(labels = c("PPV (reliability)", "TPR ()"))
 ```
+
+
 #### TODO 
 1. I should try models with and without zero-intercepts.
 2. I should try models with and without some accelerometer data.
 3. I should double check whether logistic regression even makes sense, or if all linear models are identical.
 4. I should figure out a metric to compare model performance in testing vs training to avoid overfitting. Maybe peak PPV*TPR in either?
 5. Why are these PPV curves so weird?? 
+
+* PPV = TP/(TP+FP). The denominator is the number of positives, and the numerator is the proportion of positives. It's actually pretty close to constant across all thresholds, and not that weird. This suggests that there isn't a ton of variance left to explain.
+
+5a. Why does it suggest there isn't a ton of variance left to explain?
+
+* Suppose there was unexplained variance. A strict model has high PPV. A looser model has proportionally lower PPV because the "less obvious" touches are difficult to distinguish from noise. 
+
 6. Why are these TPR curves so weird??
+
+* TPR = TP/(TP+FN). The denominator is a constant, equal to the number of "touch" datapoints in the training data. Thus, the plot of TPR~threshold is proportional to TP~threshold. The reason TP dips below full is because the concept of thresholding a signal makes no sense when that threshold is near the minimum value of the signal. For example, `r touch_confidence %>% ggplot(aes(x=time, y=p)) + geom_line() + geom_hline(yintercept=0.2, colour="grey", linetype=2)`  
+
+* It might make sense to only use the threshold where TPR is non-increasing.
+
 7. Once I have a model that's good, is it going to do well on an independent data source?
+
 
 Well, at least I can typically do better than 80% PPV and 80% TPR.
 
