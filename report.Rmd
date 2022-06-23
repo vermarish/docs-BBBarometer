@@ -32,8 +32,8 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 #tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
-#tidbits <- read_csv("data/trial.csv")
-tidbits <- read_csv("data/sporadic.csv")  # this one has problems for some reason
+tidbits <- read_csv("data/trial.csv")
+#tidbits <- read_csv("data/sporadic.csv")
 ```
 
 ## Data Cleaning
@@ -250,7 +250,8 @@ performance_by_threshold <- performance_by_threshold %>%
          norm=sqrt(PPV^2+TPR^2)/sqrt(2),
          F1=2*PPV*TPR/(PPV+TPR),
          Fhalf=1.25*(PPV*TPR)/(1/4*PPV+TPR),
-         F2=5*PPV*TPR/(2*PPV+TPR))
+         F2=5*PPV*TPR/(4*PPV+TPR),
+         Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR))
 
 # Identify the best threshold value
 best_threshold <- performance_by_threshold %>% 
@@ -260,55 +261,59 @@ best_threshold <- performance_by_threshold %>%
   pull(threshold)
   
   
-performance_by_threshold %>%
-  pivot_longer(cols = c(PPV, TPR, F1, Fhalf, F2), names_to = "metric") %>%
+plot1 <- performance_by_threshold %>%
+  pivot_longer(cols = c(PPV, TPR), names_to = "metric") %>%
   ggplot(aes(x=threshold, y=value, color=metric)) +
   geom_line(size=1) +
   geom_point() +
   scale_y_continuous(limits=c(0,1)) +
   # set 1 as the upper limit, round the lower limit to tenths-place
   scale_x_continuous(limits=function(xlims) { c(floor(xlims[1]*10)/10, 1) }) +
-  scale_color_manual(breaks = c("PPV", "TPR", "F1", "Fhalf", "F2"), 
-                     values = c("#F8766D", "#619CFF", "#BBBBBB", "#EE9999", "#99EE99"),
+  scale_color_manual(breaks = c("PPV", "TPR"), 
+                     values = c("#F8766D", "#619CFF"),
                      labels = c("PPV (reliability, precision)", 
-                                "TPR (sensitivity, recall)", 
-                                "F-1 score",
-                                "F-0.5 score",
-                                "F-2 score")) +
-  geom_vline(xintercept=best_threshold, linetype=2, color="#BBBBBB")
+                                "TPR (sensitivity, recall)")) +
+  ggtitle("Precision and recall by varying threshold")
 
-plot1 <- performance_by_threshold %>%
-  mutate(P=TP+FP) %>%
-  ggplot(aes(x=TPR, y=PPV,
-             # dummy aesthetics for tooltip
-             threshold=threshold, FP=FP, TP=TP, FN=FN
-             )) +
-  geom_point(aes(colour=threshold), size=2) +
-  #geom_line() +
-  scale_x_continuous(limits=c(0,1)) +
-  scale_y_continuous(limits=c(0,1)) +
-  theme(aspect.ratio=1) +
-  scale_color_continuous(type="viridis", direction=-1)
+plot1
 
-ggplotly(plot1)
 
-plot2 <- performance_by_threshold %>%
-  mutate(PPV=round(PPV,2), TPR=round(TPR,2)) %>%
-  ggplot(aes(y=threshold, x=TPR, color=PPV,
-             TP=TP, FP=FP)) +
-  geom_point(size=2) +
-  scale_color_continuous(type="viridis")
 
-ggplotly(plot2)
+plot2 <- ggplot() +
+  geom_col(data=performance_by_threshold %>%
+             pivot_longer(cols=c(TP,FN), names_to="classification", values_to="count"),
+           mapping=aes(x=threshold, y=count, fill=classification)) +
+  scale_fill_manual(values=c("TP"="#00BB44",
+                             "FN"="#A0CCA9",
+                             "FP"="#EE4444")) +
+  geom_col(data=performance_by_threshold,
+           mapping=aes(x=threshold, y=-FP),
+           fill="#EE4444") +
+  scale_x_reverse() +
+  geom_line(data=performance_by_threshold %>%
+              pivot_longer(cols=c(F1, Fhalf, F2), names_to="metric", values_to="F"),
+            mapping=aes(x=threshold, y=F*(TP+FN), linetype=metric)) +
+  scale_linetype_manual(values=c("F1"=1, "F2"=2, "Fhalf"=3)) +
+  ggtitle("Classifications by decreasing threshold",
+          subtitle="with three precision-recall metrics")
+plot2
+
 
 plot3 <- performance_by_threshold %>%
-  ggplot(aes(x=TPR, y=threshold, fill=PPV,
+  filter(PPV > 0) %>%
+  pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
+  ggplot(aes(x=TPR, y=threshold, fill=F,
              # dummy aesthetics, for tooltip
              TP=TP, FP=FP)) +
   geom_col(orientation="y") +
   scale_fill_continuous(type="viridis") +
-  ggtitle("True Positive Rate decreases as threshold increases")
+  facet_grid(. ~ Fscore) +
+  ggtitle("True Positive Rate decreases as threshold increases")# +
+  #scale_x_reverse()
+plot3
+
 ggplotly(plot3)
+
 ```
 
 
