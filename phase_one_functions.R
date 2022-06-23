@@ -68,9 +68,16 @@ train_pressure_model <- function(train, test, width=4) {
   test_df <- build_df(test, width=width)
   
   ## Fit the model
-  touch_model <- glm(label ~ ., 
+  touch_model <- glm(label ~ . + 0, 
                      data=train_df,
                      family = "binomial")
+  
+  
+  ## TODO let's try fitting a model with lasso regularization
+  touch_model_lasso <- glmnet(x=as.matrix(train_df %>% select(-label)),
+                              y=train_df$label,
+                              family="binomial")
+  
   
   ## Handle the values fitted in training
   # Store the fitted values
@@ -161,24 +168,25 @@ threshold_pressure <- function(result, threshold=0.4) {
 
 
 
-
-# data: should contain touch tidbits and pressure tidbits
-# touch_confidence: should contain p tidbits
-scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0.5) {
+# data: should contain touch tidbits and sensor tidbits
+# touch_confidence: literally just needs columns p and time
+scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0.5,
+                                       sensor_type="pressure", col="one") {
   touch_range <- data %>% filter(type=="touch") %>% select(time) %>% range()
   touch_span <- touch_range %>% diff()
   first_touch <- touch_range[1]
   open = touch_span*a + first_touch
   close = touch_span*b + first_touch
   
-  # try testing red, training #d781d5
-  scatterplot(touch_confidence, "pressure", "one", a, b) +
+  # TODO remove this plot
+  # also, try coloring: testing red, training #d781d5
+  scatterplot(touch_confidence, sensor_type, col, a, b) +
     geom_line(data=touch_confidence %>% 
                 filter(time > open & time < close),
               aes(y=p*diff(range(one)) + min(one),
                   colour=set))
   
-  foo <- scatterplot(data, "pressure", "one", a, b) + ggtitle("")
+  foo <- scatterplot(data, sensor_type, col, a, b) + ggtitle("")
   bar <- touch_confidence %>%
     filter(time > open & time < close) %>%
     ggplot() +

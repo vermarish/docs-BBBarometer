@@ -225,6 +225,8 @@ for (threshold in seq(0.05, 0.98, 0.01)) {
   PPV = TP/(TP+FP)
   TPR = TP/(TP+FN)
   
+  PPV = if (is.na(PPV)) 0 else PPV  # because PPV = 0/0 with a null classifier
+  
   performance_by_threshold <- performance_by_threshold %>% 
     add_row(threshold=threshold,
             PPV=PPV,
@@ -244,39 +246,75 @@ min_threshold <- performance_by_threshold %>%
   pull(threshold)
 performance_by_threshold <- performance_by_threshold %>%
   filter(threshold > min_threshold) %>%
-  mutate(prod=PPV*TPR, norm=sqrt(PPV^2+TPR^2))
+  mutate(prod=PPV*TPR, 
+         norm=sqrt(PPV^2+TPR^2)/sqrt(2),
+         F1=2*PPV*TPR/(PPV+TPR),
+         Fhalf=1.25*(PPV*TPR)/(1/4*PPV+TPR),
+         F2=5*PPV*TPR/(2*PPV+TPR))
 
 # Identify the best threshold value
 best_threshold <- performance_by_threshold %>% 
-  mutate(metric = norm) %>% # CHANGE THIS TO norm OR prod
+  mutate(metric = F1) %>% # CHANGE THIS TO norm OR prod
   arrange(desc(metric)) %>% 
   slice(1) %>% 
   pull(threshold)
   
   
 performance_by_threshold %>%
-  pivot_longer(cols = c(PPV, TPR, norm, prod), names_to = "metric") %>%
+  pivot_longer(cols = c(PPV, TPR, F1, Fhalf, F2), names_to = "metric") %>%
   ggplot(aes(x=threshold, y=value, color=metric)) +
   geom_line(size=1) +
   geom_point() +
-  #scale_y_continuous(limits=c(0,1)) +
-  # set 1 as the upper limit
-  scale_x_continuous(limits=function(xlims) { pmax(xlims, c(0,1)) }) +
-  scale_color_manual(breaks = c("PPV", "TPR", "norm", "prod"), 
-                     values = c("#F8766D", "#619CFF", "#BBBBBB", "#999999"),
+  scale_y_continuous(limits=c(0,1)) +
+  # set 1 as the upper limit, round the lower limit to tenths-place
+  scale_x_continuous(limits=function(xlims) { c(floor(xlims[1]*10)/10, 1) }) +
+  scale_color_manual(breaks = c("PPV", "TPR", "F1", "Fhalf", "F2"), 
+                     values = c("#F8766D", "#619CFF", "#BBBBBB", "#EE9999", "#99EE99"),
                      labels = c("PPV (reliability, precision)", 
                                 "TPR (sensitivity, recall)", 
-                                "norm(PPV, TPR)",
-                                "PPV * TPR")) +
+                                "F-1 score",
+                                "F-0.5 score",
+                                "F-2 score")) +
   geom_vline(xintercept=best_threshold, linetype=2, color="#BBBBBB")
 
-performance_by_threshold %>%
-  ggplot(aes(x=TPR, y=PPV)) +
-  geom_line()
+plot1 <- performance_by_threshold %>%
+  mutate(P=TP+FP) %>%
+  ggplot(aes(x=TPR, y=PPV,
+             # dummy aesthetics for tooltip
+             threshold=threshold, FP=FP, TP=TP, FN=FN
+             )) +
+  geom_point(aes(colour=threshold), size=2) +
+  #geom_line() +
+  scale_x_continuous(limits=c(0,1)) +
+  scale_y_continuous(limits=c(0,1)) +
+  theme(aspect.ratio=1) +
+  scale_color_continuous(type="viridis", direction=-1)
+
+ggplotly(plot1)
+
+plot2 <- performance_by_threshold %>%
+  mutate(PPV=round(PPV,2), TPR=round(TPR,2)) %>%
+  ggplot(aes(y=threshold, x=TPR, color=PPV,
+             TP=TP, FP=FP)) +
+  geom_point(size=2) +
+  scale_color_continuous(type="viridis")
+
+ggplotly(plot2)
+
+plot3 <- performance_by_threshold %>%
+  ggplot(aes(x=TPR, y=threshold, fill=PPV,
+             # dummy aesthetics, for tooltip
+             TP=TP, FP=FP)) +
+  geom_col(orientation="y") +
+  scale_fill_continuous(type="viridis") +
+  ggtitle("True Positive Rate decreases as threshold increases")
+ggplotly(plot3)
 ```
 
 
-#### TODO 
+
+
+#### TODO  narrate plot above
 1. I should try models with and without zero-intercepts.
 2. I should try models with and without some accelerometer data.
 3. I should double check whether logistic regression even makes sense, or if all linear models are identical.
