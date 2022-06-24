@@ -32,8 +32,8 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 #tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
-tidbits <- read_csv("data/trial.csv")
-#tidbits <- read_csv("data/sporadic.csv")
+#tidbits <- read_csv("data/trial.csv")
+tidbits <- read_csv("data/sporadic.csv")
 ```
 
 ## Data Cleaning
@@ -84,6 +84,11 @@ touch_data <- data %>%
 
 cutoff <- touch_data$time[as.integer(nrow(touch_data)*prop)]
 
+data <- data %>%
+  mutate(set = sapply(time, function(t) {
+    if (t < cutoff) "training" else
+  }))
+
 train <- data %>%
   filter(time < cutoff) %>%
   filter(type %in% c("pressure", "touch")) %>%
@@ -110,6 +115,16 @@ Let's just try a logistic regression. I'm concerned this isn't really the best c
 touch_confidence <- train_pressure_model(train, test, width=4)
 
 threshold = 0.22
+
+
+# pick the best threshold on the training set
+for (threshold in seq(0.5, 0.95, 0.01)) {
+  thresholded <- # TODO
+}
+
+
+
+
 
 # this includes touch_predict and touch
 thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
@@ -163,9 +178,35 @@ Using a signal processing analogy, PPV describes how much of the measurement is 
 Let's write some code to measure these quantities.
 
 We'll compute PPV and TPR for a bunch of different thresholds.
+```{r include=FALSE}
+# data includes the rows:
+#   touch
+#   touch_predict
+#
+# touch_confidence includes the columns:
+#   p: a 0-1 confidence of touch input
+#   set: {"training", "testing"}
+evaluate_thresholds <- function(data, touch_confidence) {
+  dt = 4e7
+  margin = 5*dt  # radius of the window for matching a touch_predict with a touch
+  touches <- data %>% filter(type == "touch")
+  performance_by_threshold <- tibble(threshold=numeric(), 
+                                   PPV=numeric(), 
+                                   TPR=numeric(),
+                                   TP=numeric(),
+                                   FP=numeric(),
+                                   FN=numeric())
+  
+  for (threshold in seq(0.05, 0.98, 0.01)) {
+    
+  }
+}
+```
+
+DEPRECATED CHUNK
 ```{r}
 dt = 4e7
-margin = 5*dt
+margin = 5*dt  # radius of the window for matching a touch_predict with a touch
 
 
 performance_by_threshold <- tibble(threshold=numeric(), 
@@ -179,6 +220,7 @@ performance_by_threshold <- tibble(threshold=numeric(),
 for (threshold in seq(0.05, 0.98, 0.01)) {
   thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
     bind_rows(data %>% filter(type=="touch"))
+  # TODO cd .. we were right here trying to get rid of the dependency on cutoff in line 234. Then we shall make this chunk into a function. Then we shall work on the writeup. Flow must be like: "Present data, build model, find threshold from training data, show model in signal form with this threshold (without further elaboration), THEN talk about thresholds -- show model in performance-summary form, talk about F-statistics"
   
   all_events <- thresholded %>%
     filter(type %in% c("touch", "touch_predict")) %>%
@@ -251,24 +293,18 @@ performance_by_threshold <- performance_by_threshold %>%
          F1=2*PPV*TPR/(PPV+TPR),
          Fhalf=1.25*(PPV*TPR)/(1/4*PPV+TPR),
          F2=5*PPV*TPR/(4*PPV+TPR),
-         Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR))
+         Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR)) %>%
+  replace_na(list(F1=0, Fhalf=0, F2=0, Fquarter=0))
+```
 
-# Identify the best threshold value
-best_threshold <- performance_by_threshold %>% 
-  mutate(metric = F1) %>% # CHANGE THIS TO norm OR prod
-  arrange(desc(metric)) %>% 
-  slice(1) %>% 
-  pull(threshold)
-  
-  
+```{r include=FALSE}
+
 plot1 <- performance_by_threshold %>%
   pivot_longer(cols = c(PPV, TPR), names_to = "metric") %>%
   ggplot(aes(x=threshold, y=value, color=metric)) +
   geom_line(size=1) +
   geom_point() +
   scale_y_continuous(limits=c(0,1)) +
-  # set 1 as the upper limit, round the lower limit to tenths-place
-  #scale_x_continuous(limits=function(xlims) { c(floor(xlims[1]*10)/10, 1) }, transform="reverse") +
   scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
   scale_color_manual(breaks = c("PPV", "TPR"), 
                      values = c("#F8766D", "#619CFF"),
@@ -299,21 +335,11 @@ plot2 <- ggplot() +
 plot3 <- performance_by_threshold %>%
   filter(PPV > 0) %>%
   pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
-  ggplot(aes(x=TPR, y=threshold, fill=F,
-             # dummy aesthetics, for tooltip
-             TP=TP, FP=FP)) +
-  geom_col(orientation="y") +
-  scale_fill_continuous(type="viridis") +
-  facet_grid(. ~ Fscore) +
-  ggtitle("Classifications colored by three precision-recall metrics")
-
-plot4 <- performance_by_threshold %>%
-  filter(PPV > 0) %>%
-  pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
   ggplot(aes(x=threshold, y=TPR, fill=F,
              # dummy aesthetics, for tooltip
              TP=TP, FP=FP)) +
-  geom_col(orientation="y") +
+  geom_col() +
+  scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
   scale_fill_continuous(type="viridis") +
   facet_grid(Fscore ~ .) +
   ggtitle("Classifications colored by three precision-recall metrics")
@@ -321,12 +347,15 @@ plot4 <- performance_by_threshold %>%
 
 ```{r}
 plot1
-plot2
-plot3
 ```
 
+```{r}
+plot2
+```
 
-
+```{r}
+plot3
+```
 
 #### TODO  narrate plot above
 1. I should try models with and without zero-intercepts.
