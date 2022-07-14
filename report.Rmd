@@ -86,7 +86,7 @@ cutoff <- touch_data$time[as.integer(nrow(touch_data)*prop)]
 
 data <- data %>%
   mutate(set = sapply(time, function(t) {
-    if (t < cutoff) "training" else
+    if (t < cutoff) "training" else "testing"
   }))
 
 train <- data %>%
@@ -110,21 +110,20 @@ source("phase_one_functions.R")
 
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
+
 ```{r}
-# this is just pressure data
+# this is just pressure data with a p-column
 touch_confidence <- train_pressure_model(train, test, width=4)
 
-threshold = 0.22
+# Using that p-column, we can try a bunch of different thresholds
+performance_by_threshold <- evaluate_thresholds(data, touch_confidence)
 
-
-# pick the best threshold on the training set
-for (threshold in seq(0.5, 0.95, 0.01)) {
-  thresholded <- # TODO
-}
-
-
-
-
+# This threshold did pretty well
+threshold <- performance_by_threshold %>%
+  slice_max(F1) %>%
+  slice(1) %>%
+  pull(threshold)
+# So let's use that threshold.
 
 # this includes touch_predict and touch
 thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
@@ -175,127 +174,11 @@ What proportion of real touches is the model able to capture? This is the true p
 
 Using a signal processing analogy, PPV describes how much of the measurement is noise, and TPR describes how much of the signal the measurement captures. A model that is too sensitive may have excellent TPR, but poor PPV as it keeps falsely triggering without a touch input. A model that is too strict may have excellent PPV, but poor TPR as it misses a lot of the signal.
 
-Let's write some code to measure these quantities.
+Let's compare PPV and TPR at a bunch of different thresholds.
 
-We'll compute PPV and TPR for a bunch of different thresholds.
-```{r include=FALSE}
-# data includes the rows:
-#   touch
-#   touch_predict
-#
-# touch_confidence includes the columns:
-#   p: a 0-1 confidence of touch input
-#   set: {"training", "testing"}
-evaluate_thresholds <- function(data, touch_confidence) {
-  dt = 4e7
-  margin = 5*dt  # radius of the window for matching a touch_predict with a touch
-  touches <- data %>% filter(type == "touch")
-  performance_by_threshold <- tibble(threshold=numeric(), 
-                                   PPV=numeric(), 
-                                   TPR=numeric(),
-                                   TP=numeric(),
-                                   FP=numeric(),
-                                   FN=numeric())
+# TODO cd .. we were right here trying to get rid of the dependency on cutoff in line 234. Then we shall make this chunk into a function. Then we shall work on the writeup. Flow must be like: "Present data, build model, find threshold from training data, show model in signal form with this threshold (without further elaboration), THEN talk about thresholds -- show model in performance-summary form, talk about F-statistics"
   
-  for (threshold in seq(0.05, 0.98, 0.01)) {
-    
-  }
-}
-```
 
-DEPRECATED CHUNK
-```{r}
-dt = 4e7
-margin = 5*dt  # radius of the window for matching a touch_predict with a touch
-
-
-performance_by_threshold <- tibble(threshold=numeric(), 
-                                   PPV=numeric(), 
-                                   TPR=numeric(),
-                                   TP=numeric(),
-                                   FP=numeric(),
-                                   FN=numeric())
-
-# TODO increment by 0.01
-for (threshold in seq(0.05, 0.98, 0.01)) {
-  thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
-    bind_rows(data %>% filter(type=="touch"))
-  # TODO cd .. we were right here trying to get rid of the dependency on cutoff in line 234. Then we shall make this chunk into a function. Then we shall work on the writeup. Flow must be like: "Present data, build model, find threshold from training data, show model in signal form with this threshold (without further elaboration), THEN talk about thresholds -- show model in performance-summary form, talk about F-statistics"
-  
-  all_events <- thresholded %>%
-    filter(type %in% c("touch", "touch_predict")) %>%
-    arrange(time) %>%
-    # label each event falsely before iterating through and finding true positives
-    mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
-    
-  # only evaluate with the testing data, duh!
-  all_events <- all_events %>% 
-    mutate(set = sapply(time, 
-                        function(t) {if (t > cutoff) "testing" else "training"})) %>%
-    filter(set == "testing")
-  
-  # two-pointer iteration through touch_data and touch_predict_data  (O(n))
-  touch_data <- all_events %>% filter(type == "touch")
-  touch_predict_data <- all_events %>% filter(type == "touch_predict")
-  i = 1
-  j = 1
-  while (i <= nrow(touch_data) & j <= nrow(touch_predict_data)) {
-    d = touch_data[["time"]][i] - touch_predict_data[["time"]][j]
-    if (abs(d) < margin) {
-      touch_data[["class"]][i] = "TP"
-      touch_predict_data[["class"]][j] = "TP"
-    }
-    if (d < 0)  { i = i + 1 }  else  { j = j + 1 }
-  }
-  
-  classifications <- bind_rows(touch_data, touch_predict_data) %>%
-    arrange(time) %>%
-    filter(!(type == "touch_predict" & class == "TP"))  %>% # each TP shows up twice.
-                                                            # once for touch,
-                                                            # once for touch_predict.
-    select(class) %>%
-    table()
-  
-  TP <- classifications["TP"]
-  FP <- classifications["FP"]
-  FN <- classifications["FN"]
-  
-  TP <- if (is.na(TP)) 0 else TP
-  FP <- if (is.na(FP)) 0 else FP
-  FN <- if (is.na(FN)) 0 else FN
-  
-  PPV = TP/(TP+FP)
-  TPR = TP/(TP+FN)
-  
-  PPV = if (is.na(PPV)) 0 else PPV  # because PPV = 0/0 with a null classifier
-  
-  performance_by_threshold <- performance_by_threshold %>% 
-    add_row(threshold=threshold,
-            PPV=PPV,
-            TPR=TPR,
-            TP=TP,
-            FP=FP,
-            FN=FN)
-}
-
-# Removing thresholds that are too low. See point 5 and 6.
-min_threshold <- performance_by_threshold %>% 
-  filter(TPR == max(TPR)) %>% 
-  arrange(desc(threshold)) %>% 
-  slice(5) %>% # let's pick a few threshold values
-  arrange(threshold) %>%
-  slice(1) %>%
-  pull(threshold)
-performance_by_threshold <- performance_by_threshold %>%
-  filter(threshold > min_threshold) %>%
-  mutate(prod=PPV*TPR, 
-         norm=sqrt(PPV^2+TPR^2)/sqrt(2),
-         F1=2*PPV*TPR/(PPV+TPR),
-         Fhalf=1.25*(PPV*TPR)/(1/4*PPV+TPR),
-         F2=5*PPV*TPR/(4*PPV+TPR),
-         Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR)) %>%
-  replace_na(list(F1=0, Fhalf=0, F2=0, Fquarter=0))
-```
 
 ```{r include=FALSE}
 
