@@ -181,6 +181,8 @@ Let's compare PPV and TPR at a bunch of different thresholds.
 
 
 ```{r include=FALSE}
+threshold_line <- geom_vline(xintercept=threshold, color="#D3C4BC", linetype=2)
+
 
 plot1 <- performance_by_threshold %>%
   pivot_longer(cols = c(PPV, TPR), names_to = "metric") %>%
@@ -193,24 +195,33 @@ plot1 <- performance_by_threshold %>%
                      values = c("#F8766D", "#619CFF"),
                      labels = c("PPV (reliability, precision)", 
                                 "TPR (sensitivity, recall)")) +
-  ggtitle("Precision and recall by decreasing threshold")
+  ggtitle("Precision and recall by decreasing threshold") +
+  threshold_line
 
 
 plot2 <- ggplot() +
   geom_col(data=performance_by_threshold %>%
              pivot_longer(cols=c(TP,FN), names_to="classification", values_to="count"),
            mapping=aes(x=threshold, y=count, fill=classification)) +
-  scale_fill_manual(values=c("TP"="#00BB44",
-                             "FN"="#A0CCA9",
-                             "FP"="#EE4444")) +
+  scale_fill_manual(values=c("TP"="#1D8909",    #00BB44
+                             "FN"="#CCDACA",    #A0CCA9
+                             "FP"="#D01C8B")) + #EE4444  
   geom_col(data=performance_by_threshold,
            mapping=aes(x=threshold, y=-FP),
-           fill="#EE4444") +
+           fill="#D01C8B") +
   scale_x_reverse() +
+  ggtitle("Classifications by decreasing threshold") +
+  threshold_line
+
+  
+plot2b <- plot2 +
   geom_line(data=performance_by_threshold %>%
-              pivot_longer(cols=c(F1, Fhalf, F2), names_to="metric", values_to="F"),
-            mapping=aes(x=threshold, y=F*(TP+FN), linetype=metric)) +
-  scale_linetype_manual(values=c("F1"=1, "F2"=2, "Fhalf"=3)) +
+              pivot_longer(cols=c(F1, Fhalf, F2), names_to="metric", values_to="F") %>%
+              mutate(metric = factor(metric, levels=c("Fhalf", "F1", "F2"))),
+            mapping=aes(x=threshold, y=F*(TP+FN), linetype=metric, color=metric, size=metric)) +
+  scale_linetype_manual(values=c("F2"=2, "F1"=1, "Fhalf"=3)) +
+  scale_color_manual(values=c("F2"="#DB3E00", "F1"="#E7AB0B", "Fhalf"="#82BDFE")) +
+  scale_size_manual(values=c("F2"=1, "F1"=1, "Fhalf"=1.3)) +
   ggtitle("Classifications by decreasing threshold",
           subtitle="with three precision-recall metrics")
 
@@ -218,29 +229,67 @@ plot2 <- ggplot() +
 plot3 <- performance_by_threshold %>%
   filter(PPV > 0) %>%
   pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
-  ggplot(aes(x=threshold, y=TPR, fill=F,
+  mutate(Fscore = factor(Fscore, levels=c("F2","F1","Fhalf"))) %>%  # order, for facet_grid
+  ggplot(aes(x=threshold, y=TPR, fill=F/max(F),
              # dummy aesthetics, for tooltip
              TP=TP, FP=FP)) +
   geom_col() +
   scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
   scale_fill_continuous(type="viridis") +
   facet_grid(Fscore ~ .) +
-  ggtitle("Classifications colored by three precision-recall metrics")
+  ggtitle("Classifications colored by three precision-recall metrics") +
+  labs(y="TPR (sensitivity, recall)",
+       fill="F (scaled to 1)") +
+  threshold_line
 ```
 
+
+> Let's see how threshold affects precision and recall.
+
+From left to right, the threshold lowers and the model becomes more sensitive (Fig 1). As the recall (blue) approaches 1, the precision of positive predictions (red) decreases.
 ```{r}
 plot1
 ```
 
+> But proportions are too abstract; let's count the actual classifications. 
+
+In Figure 2, the pale green bar represents the positives that need to be captured. From left to right, the threshold lowers and the model is able to capture true positives. As the threshold lowers too far, though, the model captures more and more false positives.
+
 ```{r}
 plot2
 ```
+ 
+> I understand "green good, red bad", but how about a measurable accuracy metric?
+
+I thought about using the unit norm or the geometric mean of precision and recall, but I decided on F-score because it's [well-documented](https://en.wikipedia.org/wiki/F-score). I can weight it so that either precision ($F_{0.5}$) or recall ($F_2$) is more important. Let's throw that on the previous plot.
+ 
+```{r}
+plot2b
+```
+
+> Which metric is better?
+
+You can clearly see that Fhalf is biased to the left, where precision is indeed higher, but it's difficult to see where each metric reaches its maximum. Let's take the green plot and color-code by each F-statistic. The coloring in Fig 3 is scaled so that the "best" threshold as measured by each metric is similarly bright.
 
 ```{r}
 plot3
 ```
 
-#### TODO  narrate plot above
+
+# TODO hmmmm.... 
+<!--Now that I've written these plots up, as pretty as plot 3 is, I think it would be better to simply examine a lineplot with these metrics all scaled to 1, with the peaks annotated.-->
+
+```{r}
+plot4 <- performance_by_threshold %>%
+  filter(PPV > 0) %>%
+  pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
+  mutate(Fscore = factor(Fscore, levels=c("F2","F1","Fhalf"))) %>%  # order, for legend
+  ggplot(aes(x=threshold, y=F, color=Fscore)) +
+  geom_line() # TODO cd .. we stuck here
+  
+plot4
+```
+
 1. I should try models with and without zero-intercepts.
 2. I should try models with and without some accelerometer data.
 3. I should double check whether logistic regression even makes sense, or if all linear models are identical.
@@ -264,11 +313,6 @@ plot3
 
 Well, at least I can typically do better than 80% PPV and 80% TPR.
 
-#### chunk to run
-
-```{r}
-
-```
 ### 1e: Tune model parameters
 
 ### 1f: Improve model (TODO)
