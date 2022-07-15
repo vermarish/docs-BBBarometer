@@ -72,6 +72,9 @@ train_pressure_model <- function(train, test, width=4) {
                      data=train_df,
                      family = "binomial")
   
+  touch_model <- glm(label ~ X1 + X2 + 0,
+                     data=train_df,
+                     family="binomial")
   
   ## TODO let's try fitting a model with lasso regularization
   touch_model_lasso <- glmnet(x=as.matrix(train_df %>% select(-label)),
@@ -163,8 +166,10 @@ threshold_pressure <- function(touch_confidence, threshold=0.4) {
                           one=0,
                           two=0,
                           three=0,
-                          p=0) %>%
-    mutate(set = sapply(time, function(t) {if (t > cutoff) "testing" else "training"}))
+                          p=0,
+                          set="") %>%
+    mutate(set = sapply(time, function(t) {if (t > cutoff) "testing" else "training"})) %>%
+    mutate(set = as.character(set))
   
   thresholded <- bind_rows(touch_confidence, occurrence_df) %>%
     arrange(time)
@@ -292,22 +297,24 @@ evaluate_thresholds <- function(data, touch_confidence) {
               FN=FN)
   }
   
-  # Removing thresholds that are too low. See point 5 and 6.
-  min_threshold <- performance_by_threshold %>% 
-    filter(TPR == max(TPR)) %>% 
-    arrange(desc(threshold)) %>% 
-    slice(5) %>% # let's pick a few threshold values
-    arrange(threshold) %>%
-    slice(1) %>%
-    pull(threshold)
-  
   performance_by_threshold <- performance_by_threshold %>%
-    filter(threshold > min_threshold) %>%
     mutate(prod=PPV*TPR, 
            norm=sqrt(PPV^2+TPR^2)/sqrt(2),
            F1=2*PPV*TPR/(PPV+TPR),
            Fhalf=1.25*(PPV*TPR)/(1/4*PPV+TPR),
            F2=5*PPV*TPR/(4*PPV+TPR),
-           Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR)) %>%
+           Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR))
+  
+  # Removing thresholds that are too low. See point 5 and 6.
+  min_threshold <- performance_by_threshold %>% 
+    filter(F2 == max(F2)) %>% 
+    arrange(desc(threshold)) %>% 
+    slice(1) %>%
+    pull(threshold)
+  
+  min_threshold <- min_threshold - 0.05
+  
+  performance_by_threshold <- performance_by_threshold %>%
+    filter(threshold > min_threshold) %>%
     replace_na(list(F1=0, Fhalf=0, F2=0, Fquarter=0))
 }
