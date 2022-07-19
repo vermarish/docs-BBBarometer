@@ -5,3 +5,18 @@ experiment_1
 holding the phone in one hand, tap center and bottom. are there pressure differences? motion differences?
 
 holding the phone in one hand, tap everywhere reachable (quarter circle). can i solve 
+
+
+
+
+
+
+
+
+
+
+sporadic.csv: the data input is as finnicky and exponentially applied as possible
+
+
+
+trial.csv: the data input is fairly normal

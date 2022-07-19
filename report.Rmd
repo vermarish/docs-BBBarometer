@@ -14,6 +14,7 @@ library(GGally) # for ggpairs scatterplot matrix
 library(ggpubr) # for multiple ggplots in one figure
 library(tidyverse)
 library(glmnet)
+library(ggthemes)
 
 ## Filepath on my desktop
 # setwd("E:\\Desktop\\docs-BBBarometer")
@@ -178,7 +179,7 @@ Let's compare PPV and TPR at a bunch of different thresholds.
 
 <!-- TODO Flow of the writeup must be like: "Present data, build model, find threshold from training data, show model in signal form with this threshold (without further elaboration), THEN talk about thresholds -- show model in performance-summary form, talk about F-statistics" -->
   
-
+#### The graphs
 
 ```{r include=FALSE}
 threshold_line <- geom_vline(xintercept=threshold, color="#D3C4BC", linetype=2)
@@ -195,12 +196,18 @@ plot1 <- performance_by_threshold %>%
   geom_point() +
   scale_y_continuous(limits=c(0,1)) +
   scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
+  coord_cartesian(ylim=c(0,1)) +
   scale_color_manual(breaks = c("PPV", "TPR"), 
-                     values = c("#F8766D", "#619CFF"),
-                     labels = c("PPV (reliability, precision)", 
-                                "TPR (sensitivity, recall)")) +
-  ggtitle("Precision and recall by decreasing threshold") +
-  threshold_line
+                     values = c("#F8766D", "#44bc2f"),
+                     labels = c("Precision (% useful captures)", 
+                                "Recall (% touches captured)")) +
+  ggtitle("Precision and recall against threshold") +
+  threshold_line +
+  labs(x="threshold (decreasing)") +
+  theme_minimal() +
+  theme(legend.title=element_blank()) +
+  geom_vline(xintercept=1, color="black", size=1) +
+  geom_hline(yintercept=0, color="black", size=1)
 
 
 plot2 <- ggplot() +
@@ -215,8 +222,12 @@ plot2 <- ggplot() +
            fill="#D01C8B") +
   scale_x_reverse() +
   ggtitle("Classifications by decreasing threshold") +
-  threshold_line
+  threshold_line +
+  labs(x="threshold (decreasing)") +
+  theme_minimal()
+  #geom_hline(yintercept=0, color="grey", size=1, linetype=2)
 
+# TODO annotate plot2 with recall
   
 plot2b <- plot2 +
   geom_line(data=performance_by_threshold_long,
@@ -227,32 +238,8 @@ plot2b <- plot2 +
   ggtitle("Classifications by decreasing threshold",
           subtitle="with three precision-recall metrics")
 
-
-plot3 <- performance_by_threshold %>%
-  filter(PPV > 0) %>%
-  mutate(F1=F1/max(F1),
-         F2=F2/max(F2),
-         Fhalf=Fhalf/max(Fhalf)) %>%
-  pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
-  mutate(Fscore = factor(Fscore, levels=c("F2","F1","Fhalf"))) %>%  # order, for facet_grid
-  ggplot(aes(x=threshold, y=TPR, fill=F,
-             # dummy aesthetics, for tooltip
-             TP=TP, FP=FP)) +
-  geom_col() +
-  facet_grid(Fscore ~ .) +
-  scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
-  scale_fill_continuous(type="viridis") +
-  ggtitle("Classifications colored by three precision-recall metrics") +
-  labs(y="TPR (sensitivity, recall)",
-       fill="F (scaled to 1)") +
-  geom_vline(aes(xintercept=threshold),
-           colour="#FA272A", linetype=2,
-           data=performance_by_threshold_long %>%
-             group_by(metric) %>%
-             filter(F==max(F)) %>%
-             mutate(Fscore=metric))
-
-plot3b <- performance_by_threshold_long %>%
+plot3 <- performance_by_threshold_long %>%
+  mutate(metric = factor(metric, levels=c("F2","F1","Fhalf"))) %>%  # order, for facet_grid
   group_by(metric) %>%
   mutate(F=F/max(F)) %>%
   filter(PPV > 0) %>%
@@ -267,23 +254,11 @@ plot3b <- performance_by_threshold_long %>%
            data=performance_by_threshold_long %>%
              group_by(metric) %>%
              filter(F==max(F)) %>%
-             mutate(Fscore=metric))
-
-plot3c <- performance_by_threshold_long %>%
-  group_by(metric) %>%
-  mutate(F=F/max(F)) %>%
-  filter(PPV > 0) %>%
-  ggplot(aes(x=threshold, y=F, color=metric)) +
-  geom_point(size=2) +
-  geom_line() +
-  scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
-  scale_color_continuous(type="viridis") +
-  geom_vline(aes(xintercept=threshold),
-           colour="#FA272A", linetype=2,
-           data=performance_by_threshold_long %>%
-             group_by(metric) %>%
-             filter(F==max(F)) %>%
-             mutate(Fscore=metric))
+             mutate(Fscore=metric)) +
+  labs(y="F",
+       x="threshold (decreasing)",
+       color="F (scaled to 1)") +
+  ggtitle("Three 'optimal' thresholds,", subtitle="according to three F-metrics")
 ```
 
 
@@ -322,25 +297,6 @@ The coloring in Fig 3 is scaled so that the "best" threshold as measured by each
 plot3
 ```
 
-
-# TODO hmmmm.... 
-<!--Now that I've written up Figures 1 2a and 2b, as pretty as plot 3 is, I think it would be better to simply examine a lineplot with these metrics all scaled to 1, with the peaks annotated.-->
-
-```{r}
-plot4 <- performance_by_threshold %>%
-  mutate(F1 = F1/max(F1),
-         F2 = F2/max(F2),
-         Fhalf = Fhalf/max(Fhalf),
-         Fquarter = Fquarter/max(Fquarter)) %>%
-  pivot_longer(cols=c(F1, Fhalf, F2), names_to="Fscore", values_to="F") %>%
-  mutate(Fscore = factor(Fscore, levels=c("F2","F1","Fhalf"))) %>%  # order, for legend
-  ggplot(aes(x=threshold, y=F, color=Fscore)) +
-  geom_line() +
-  scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
-  scale_y_continuous(limits=c(0,1))
-  
-plot4
-```
 
 1. I should try models with and without zero-intercepts.
 2. I should try models with and without some accelerometer data.
