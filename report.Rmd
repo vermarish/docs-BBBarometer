@@ -66,8 +66,8 @@ After training a binary classifier (logit distribution), we will then threshold 
 
 ```{r}
 scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
-scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1, stem=TRUE)
-scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2, stem=TRUE)
+#scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1, stem=TRUE)
+#scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2, stem=TRUE)
 ```
 
 It looks like each pressure spike is registered on about two points. Let's use a window of four derivative values, which requires computation on a window of size five. Around each touch point, I will record two subsequent windows as label "one".
@@ -92,6 +92,46 @@ data <- data %>%
     if (t < cutoff) "training" else "testing"
   }))
 
+```
+
+
+### 1c: Predict touch input from pressure data
+
+Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
+
+```{r include=FALSE}
+source("phase_one_functions.R")
+
+# build_df <- function(pressure_data, width, incidences=2)
+#
+# For labeling snapshots of pressure data with 1 or 0
+# input: a dataframe containing pressure data and touch data
+#        width: the size of a single window
+#        incidences: the number of windows to record following a touch event
+# output: a dataframe where each row is small window of the signal, and is labeled.
+#         and a final entry for the label
+
+
+# train_pressure_model <- function(train, test, width=4, incidences=2)
+#
+# input: tibbles with the tidbits, and a width parameter
+# this function will restructure the tidbits for regression,
+#                    train the model,
+#                    and return the fitting for train and test.
+# the width describes the size of the window passed across the signal
+# the windowed signal is used in logistic regression
+
+
+# threshold_pressure <- function(touch_confidence, threshold=0.4)
+#
+# Input a dataframe with pressure data and the modeled p-confidence of touch occurrence.
+# Include the value at which to threshold.
+# Inserts rows of type "touch_predict" labeled by set "training" or "testing"
+# Assumes all training data happens before testing data.
+```
+
+
+```{r}
 train <- data %>%
   filter(time < cutoff) %>%
   filter(type %in% c("pressure", "touch")) %>%
@@ -101,20 +141,8 @@ test <- data %>%
   filter(time > cutoff) %>%
   filter(type %in% c("pressure", "touch")) %>%
   arrange(time)
-```
-
-Next, we build a dataframe containing snapshots of pressure data labeled with 1 or 0
-
-```{r}
-source("phase_one_functions.R")
-```
-
-### 1c: Predict touch input from pressure data
-
-Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 
-```{r}
 # this is just pressure data with a p-column
 touch_confidence <- train_pressure_model(train, test, width=4)
 
@@ -342,35 +370,9 @@ Well, at least I can typically do better than 80% PPV and 80% TPR.
 
 ## Phase 2: Mining features for direction of turn
 
-
-
-
-
-
-
-
-
-<!--
-
-Let's assume our touch input is good. Let's mine the subsequent gyroscope data for features. 
-
-```{r}
-
-model <- data %>%
-  bind_rows(thresholded_testing %>%
-              filter(type=="touch_predict") %>%
-              select(-p)) %>%
-  bind_rows(thresholded_training %>%
-              filter(type=="touch_predict") %>%
-              select(-p))
-
-model %>% group_by(type) %>% count()
-
-a=0.85
-scatterplot(model, "gyroscope", "one", start=a, end=a+0.05)
-```
-
 Okay next phase! Given touch input (or a proxy for its occurrence), can I identify a relationship between gyroscope data and the location of the touch input?   
+
+### Thinking what to mine from gyroscope data
 
 Which features do I mine? 
 
@@ -384,7 +386,7 @@ This peak will have n points. How do I mine this peak?????
 
 I really need some sort of book on statistical methods for time series
 
-```{r}
+```{r include=FALSE}
 # In: signal should be a tibble with two columns: time and data (pressure data)
 #     times should be a vector of doubles.
 # Ou: list of waveforms. (each waveform is itself represented as a list)

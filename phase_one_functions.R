@@ -1,5 +1,7 @@
 # For labeling snapshots of pressure data with 1 or 0
 # input: a dataframe containing pressure data and touch data
+#        width: the size of a single window
+#        incidences: the number of windows to record following a touch event
 # output: a dataframe where each row is the result of point-wise multiplication 
 #         between factor 1 and factor 2, and is labeled.
 #         factor 1:  iterated difference of pressure signal
@@ -10,7 +12,7 @@
 #       
 #
 # and a 5th column for the label
-build_df <- function(pressure_data, width) {
+build_df <- function(pressure_data, width, incidences=2) {
   df <- data.frame(matrix(rep(NA,width + 1), nrow=1))
   df <- na.omit(df)
   colnames(df)[ncol(df)] = "label"
@@ -60,12 +62,12 @@ build_df <- function(pressure_data, width) {
 #                    and return the fitting for train and test.
 # the width describes the size of the window passed across the signal
 # the windowed signal is used in logistic regression
-train_pressure_model <- function(train, test, width=4) {
+train_pressure_model <- function(train, test, width=4, incidences=2) {
   buffer = width
   
   ## Arrange the data
-  train_df <- build_df(train, width=width)
-  test_df <- build_df(test, width=width)
+  train_df <- build_df(train, width=width, incidences=incidences)
+  test_df <- build_df(test, width=width, incidences=incidences)
   
   ## Fit the model
   touch_model <- glm(label ~ . + 0, 
@@ -121,7 +123,7 @@ train_pressure_model <- function(train, test, width=4) {
 }
 
 
-
+# Helper function for threshold_pressure()
 # Input a vector containing integers in order
 # Collapse chains of many consecutive integers into a single integer
 # e.g. 2 4 5 6 8 9 11 12
