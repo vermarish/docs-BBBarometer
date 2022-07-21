@@ -12,14 +12,14 @@
 #       
 #
 # and a 5th column for the label
-build_df <- function(pressure_data, width, incidences=2) {
+build_df <- function(pressure_data, width=4, incidences=2) {
   df <- data.frame(matrix(rep(NA,width + 1), nrow=1))
   df <- na.omit(df)
   colnames(df)[ncol(df)] = "label"
   
   i = 1
   quota = 0
-  while (i <= nrow(pressure_data) - width) {
+  while (i <= nrow(pressure_data) - 2*width) {
     event <- pressure_data %>%
       slice(i:(i+width+3))
     
@@ -35,7 +35,7 @@ build_df <- function(pressure_data, width, incidences=2) {
       # instead, start labeling subsequent pressure_events as 1
       # quota is a "hyperparameter" for labeling data:
       #     the number of windows recorded following a touch event
-      quota = 2
+      quota = incidences
     } else {  # event$type[1] == "pressure"
       # then label as 1 only if we need to meet the quota
       if (quota > 0) {
@@ -62,8 +62,18 @@ build_df <- function(pressure_data, width, incidences=2) {
 #                    and return the fitting for train and test.
 # the width describes the size of the window passed across the signal
 # the windowed signal is used in logistic regression
-train_pressure_model <- function(train, test, width=4, incidences=2) {
+train_pressure_model <- function(data, width=4, incidences=2) {
   buffer = width
+  
+  train <- data %>% 
+    filter(set=="training") %>%
+    filter(type %in% c("pressure", "touch")) %>%
+    arrange(time)
+  
+  test <- data %>% 
+    filter(set=="testing") %>%
+    filter(type %in% c("pressure", "touch")) %>%
+    arrange(time)
   
   ## Arrange the data
   train_df <- build_df(train, width=width, incidences=incidences)
@@ -219,7 +229,6 @@ scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0
 
 # data includes the rows:
 #   touch
-#   touch_predict
 # touch_confidence includes the columns:
 #   p: a 0-1 confidence of touch input
 #   set: {"training", "testing"}
@@ -228,43 +237,40 @@ scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0
 #   * threshold values (0-1)
 #   * PPV and TPR proportions
 #   * TP, FP, and FN counts
-#   * product of PPV and TPR
-#   * norm of PPV and TPR
-#   * F0.25, F0.5, F1, F2
-evaluate_thresholds <- function(data, touch_confidence) {
+#   * F0.5, F1, F2
+evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   dt = 4e7
   margin = 5*dt  # radius of the window for matching a touch_predict with a touch
-  touches <- data %>% filter(type == "touch")
-  performance_by_threshold <- tibble(threshold=numeric(), 
-                                     PPV=numeric(), 
-                                     TPR=numeric(),
-                                     TP=numeric(),
-                                     FP=numeric(),
-                                     FN=numeric())
-  for (threshold in seq(0.05, 0.98, 0.01)) {
-    thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
-      bind_rows(data %>% filter(type=="touch"))
-    
-    all_events <- thresholded %>%
-      filter(type %in% c("touch", "touch_predict")) %>%
+  
+  thresholds = seq(0.05, 0.98, 0.01)
+  TP = integer(length(thresholds))
+  FP = integer(length(thresholds))
+  FN = integer(length(thresholds))
+  
+  touches <- data %>% filter(type=="touch")
+  
+  for (k in seq(length(thresholds))) {
+    events <- threshold_pressure(touch_confidence, threshold=thresholds[k]) %>%
+      filter(type == "touch_predict") %>%
+      bind_rows(touches) %>%
       arrange(time) %>%
       # label each event falsely before iterating through and finding true positives
       mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
     
-    # only evaluate with the testing data, duh!
-    all_events <- all_events %>%
-      filter(set == "testing")
+    # only evaluate with the testing data, or with the training data, or whatever
+    events <- events %>%
+      filter(set %in% sets)
     
     # two-pointer iteration through touch_data and touch_predict_data  (O(n))
-    touch_data <- all_events %>% filter(type == "touch")
-    touch_predict_data <- all_events %>% filter(type == "touch_predict")
+    touch_data <- events %>% filter(type == "touch")
+    touch_predict_data <- events %>% filter(type == "touch_predict")
     i = 1
     j = 1
     while (i <= nrow(touch_data) & j <= nrow(touch_predict_data)) {
       d = touch_data[["time"]][i] - touch_predict_data[["time"]][j]
       if (abs(d) < margin) {
-        touch_data[["class"]][i] = "TP"
-        touch_predict_data[["class"]][j] = "TP"
+        touch_data$class[i] = "TP"
+        touch_predict_data$class[j] = "TP"
       }
       if (d < 0)  { i = i + 1 }  else  { j = j + 1 }
     }
@@ -277,35 +283,21 @@ evaluate_thresholds <- function(data, touch_confidence) {
       select(class) %>%
       table()
     
-    TP <- classifications["TP"]
-    FP <- classifications["FP"]
-    FN <- classifications["FN"]
-    
-    TP <- if (is.na(TP)) 0 else TP
-    FP <- if (is.na(FP)) 0 else FP
-    FN <- if (is.na(FN)) 0 else FN
-    
-    PPV = TP/(TP+FP)
-    TPR = TP/(TP+FN)
-    
-    PPV = if (is.na(PPV)) 0 else PPV  # because PPV = 0/0 with a null classifier
-    
-    performance_by_threshold <- performance_by_threshold %>% 
-      add_row(threshold=threshold,
-              PPV=PPV,
-              TPR=TPR,
-              TP=TP,
-              FP=FP,
-              FN=FN)
+    TP[k] <- classifications["TP"]
+    FP[k] <- classifications["FP"]
+    FN[k] <- classifications["FN"]
   }
   
-  performance_by_threshold <- performance_by_threshold %>%
-    mutate(prod=PPV*TPR, 
-           norm=sqrt(PPV^2+TPR^2)/sqrt(2),
-           F1=2*PPV*TPR/(PPV+TPR),
+  performance_by_threshold <- tibble(threshold=thresholds, TP, FN, FP) %>%
+    replace_na(list(TP=0, FP=0, FN=0)) %>%
+    mutate(PPV = TP/(TP+FP),
+           TPR = TP/(TP+FN)) %>%
+    replace_na(list(PPV=0, TPR=0)) %>%
+    mutate(F1=2*PPV*TPR/(PPV+TPR),
            Fhalf=1.25*(PPV*TPR)/(1/4*PPV+TPR),
-           F2=5*PPV*TPR/(4*PPV+TPR),
-           Fquarter=1.0625**(PPV*TPR)/(1/16*PPV+TPR))
+           F2=5*PPV*TPR/(4*PPV+TPR)) %>%
+    replace_na(list(F1=0, Fhalf=0, F2=0))
+
   
   # Removing thresholds that are too low. See point 5 and 6.
   min_threshold <- performance_by_threshold %>% 
@@ -317,6 +309,5 @@ evaluate_thresholds <- function(data, touch_confidence) {
   min_threshold <- min_threshold - 0.05
   
   performance_by_threshold <- performance_by_threshold %>%
-    filter(threshold > min_threshold) %>%
-    replace_na(list(F1=0, Fhalf=0, F2=0, Fquarter=0))
+    filter(threshold > min_threshold)
 }

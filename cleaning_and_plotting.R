@@ -69,6 +69,8 @@ clean_tidbits <- function(tidbits) {
 
 data <- clean_tidbits(tidbits)
 
+rm(type_map)
+rm(clean_tidbits)
 
 first_touch = data %>%
   filter(type=="touch") %>%
@@ -126,7 +128,7 @@ scatterplot <- function(data, sensor_type, col,
   
   # if the time series has both positive and negative values
   if (sum(sign(range(time_series[which(names(time_series) == col)][[1]]))) == 0) {
-    graph <- graph + geom_hline(yintercept=0, linetype=2, color="#666666")
+    graph <- graph + geom_hline(yintercept=0, linetype=1, color="#666666", alpha=0.35)
   }
   
   # add title and subtitle

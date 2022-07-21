@@ -81,17 +81,19 @@ prop = 0.6  # proportion of training data
 
 
 ## Portion data into train and test
-touch_data <- data %>% 
-  filter(type=="touch") %>%
-  arrange(time)
-
-cutoff <- touch_data$time[as.integer(nrow(touch_data)*prop)]
+cutoff <- data %>%
+  filter(type =="touch") %>%
+  arrange(time) %>%
+  pull(time) %>%
+  quantile(prop) %>%
+  unname()
 
 data <- data %>%
   mutate(set = sapply(time, function(t) {
     if (t < cutoff) "training" else "testing"
   }))
 
+rm(prop, cutoff)
 ```
 
 
@@ -100,7 +102,7 @@ data <- data %>%
 Let's just try a logistic regression. I'm concerned this isn't really the best choice of model because we don't have a close-to-even split and the noise may not be gaussian. This also does not leverage the fact that we are dealing with a time series, but let's just try it out.
 
 ```{r include=FALSE}
-source("phase_one_functions.R")
+source("phase_one_functions.R")  # literally just the following functions:
 
 # build_df <- function(pressure_data, width, incidences=2)
 #
@@ -132,23 +134,16 @@ source("phase_one_functions.R")
 
 
 ```{r}
-train <- data %>%
-  filter(time < cutoff) %>%
-  filter(type %in% c("pressure", "touch")) %>%
-  arrange(time)
-
-test <- data %>%
-  filter(time > cutoff) %>%
-  filter(type %in% c("pressure", "touch")) %>%
-  arrange(time)
-
-
 # this is just pressure data with a p-column
-touch_confidence <- train_pressure_model(train, test, width=4)
+touch_confidence <- train_pressure_model(data, width=4)
 
 # Using that p-column, we can try a bunch of different thresholds
-performance_by_threshold <- evaluate_thresholds(data, touch_confidence)
+performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training")
+```
 
+Here's what the result of phase one looks like. The choice in threshold is explained later.
+
+```{r}
 # This threshold did pretty well
 threshold <- performance_by_threshold %>%
   slice_max(F1) %>%
@@ -173,6 +168,8 @@ scatterplot_pressure_model(bind_rows(data, touch_predicts), touch_confidence,
                            a=a, b=a+w,
                            threshold=threshold,
                            sensor="gyroscope", col="one")
+
+rm(thresholded, touch_predicts, a, w)
 ```
 
 In the top figure, the red vertical lines are physical taps. The grey signal is pressure data.
@@ -228,7 +225,7 @@ plot1 <- performance_by_threshold %>%
   scale_x_reverse(limits=function(xlims) { c(1, xlims[2]) }) +
   coord_cartesian(ylim=c(0,1)) +
   scale_color_manual(breaks = c("PPV", "TPR"), 
-                     values = c("#F8766D", "#44bc2f"),
+                     values = c("#619cff", "#44bc2f"),
                      labels = c("Precision (% useful captures)", 
                                 "Recall (% touches captured)")) +
   ggtitle("Precision and recall against threshold") +
@@ -286,11 +283,13 @@ plot3 <- performance_by_threshold_long %>%
              group_by(metric) %>%
              filter(F==max(F)) %>%
              mutate(Fscore=metric)) +
-  labs(y="F",
+  labs(y="F (scaled to 1)",
        x="threshold (decreasing)",
        color="F (scaled to 1)") +
   ggtitle("Three 'optimal' thresholds,", subtitle="according to three F-metrics") +
   theme_bw()
+
+rm(performance_by_threshold_long, threshold_line)
 ```
 
 
@@ -365,6 +364,8 @@ Well, at least I can typically do better than 80% PPV and 80% TPR.
 
 ### 1e: Tune model parameters
 
+We're going to use the F0.5 metric to choose our threshold.
+
 ### 1f: Improve model (TODO)
 
 
@@ -387,8 +388,8 @@ This peak will have n points. How do I mine this peak?????
 I really need some sort of book on statistical methods for time series
 
 ```{r include=FALSE}
-# In: signal should be a tibble with two columns: time and data (pressure data)
-#     times should be a vector of doubles.
+# In: signal: a tibble with two columns: time and data
+#     time: a vector of doubles.
 # Ou: list of waveforms. (each waveform is itself represented as a list)
 pull_waveforms <- function(signal, times) {
   features <- list()
@@ -438,7 +439,7 @@ mine_features <- function(gyro, times) {
                 times))
 }
 
-
+# Given a dataset containing gyroscope and touch data, create a dataset consisting of features
 # In: data tibble with gyroscope and touch entries.
 #     touch can be "touch" with x/y in headers $one $two. use labeled=TRUE.
 #     or touch can be "touch_guess" with no x/y. use labeled=FALSE.
