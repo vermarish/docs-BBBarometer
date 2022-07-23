@@ -45,6 +45,7 @@ tidbits <- read_csv("data/trial.csv")
 ```{r}
 # Clean tidbits and create tibble `data`
 source("cleaning_and_plotting.R")
+data <- clean_tidbits(tidbits)
 ```
 
 
@@ -79,21 +80,12 @@ Let's use the first 60\% of the data as training data, and the last 40\% as test
 ```{r}
 prop = 0.6  # proportion of training data
 
-
 ## Portion data into train and test
-cutoff <- data %>%
-  filter(type =="touch") %>%
-  arrange(time) %>%
-  pull(time) %>%
-  quantile(prop) %>%
-  unname()
-
 data <- data %>%
-  mutate(set = sapply(time, function(t) {
-    if (t < cutoff) "training" else "testing"
-  }))
+  mutate(set = ifelse(time < quantile(time, prop),
+                      "training", "testing"))
 
-rm(prop, cutoff)
+rm(prop)
 ```
 
 
@@ -151,25 +143,27 @@ threshold <- performance_by_threshold %>%
   pull(threshold)
 # So let's use that threshold.
 
-# this includes touch_predict and touch
-thresholded <- threshold_pressure(touch_confidence, threshold=threshold) %>%
-  bind_rows(data %>% filter(type=="touch"))
+# this includes touch_predict events and pressure-p measurements
+thresholded <- threshold_pressure(touch_confidence, threshold=threshold)
 
-touch_predicts <- thresholded %>% select(-set) %>% filter(type=="touch_predict")
+# put the touch_predicts aside and into the big data tibble
+touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
+data <- bind_rows(data, touch_predicts)
 
 a=0.8
 w=0.1
 
-scatterplot_pressure_model(thresholded, touch_confidence,
+scatterplot_pressure_model(data, touch_confidence,
                            a=a, b=a+w,
-                           threshold=threshold)
+                           threshold=threshold,
+                           sensor="pressure", col="one")
 
-scatterplot_pressure_model(bind_rows(data, touch_predicts), touch_confidence,
+scatterplot_pressure_model(data, touch_confidence,
                            a=a, b=a+w,
                            threshold=threshold,
                            sensor="gyroscope", col="one")
 
-rm(thresholded, touch_predicts, a, w)
+rm(touch_predicts, a, w)
 ```
 
 In the top figure, the red vertical lines are physical taps. The grey signal is pressure data.
@@ -373,7 +367,9 @@ We're going to use the F0.5 metric to choose our threshold.
 
 Okay next phase! Given touch input (or a proxy for its occurrence), can I identify a relationship between gyroscope data and the location of the touch input?   
 
-### Thinking what to mine from gyroscope data
+
+
+#### Thinking what to mine from gyroscope data
 
 Which features do I mine? 
 
@@ -387,7 +383,10 @@ This peak will have n points. How do I mine this peak?????
 
 I really need some sort of book on statistical methods for time series
 
+#### 2a: Mining
+
 ```{r include=FALSE}
+# Get waveforms (peaks) from a signal at a set of times
 # In: signal: a tibble with two columns: time and data
 #     time: a vector of doubles.
 # Ou: list of waveforms. (each waveform is itself represented as a list)
@@ -413,44 +412,57 @@ pull_waveforms <- function(signal, times) {
 }
 
 
+# TODO mine_features shouldn't be gyroscope-specific. Take in all the data + a
+#      vector of times, and mine gyroscope data AND pressure data. 
+#      big task tomorrow morning. call it a "cd .."
+
 # In: TIME-SORTED data tibble with ONLY timestamped gyroscope entries
 # Ou: feature tibble containing each wave
-mine_features <- function(gyro, times) {
+mine_features <- function(data, times) {
   # Mining features with pull_waveforms works better when delayed by 7-10 samples, to get closer to the center of a peak.
+  gyro <- data %>% filter(type=="gyroscope") %>% arrange(time)
   delay <- 10
   period <- gyro$time %>% diff %>% mean
-  times <- times + delay*period
+  gyro_times <- times + delay*period
   
+  # mine each waveform
   gyro_one <- pull_waveforms(signal=gyro %>% select(time=time, data=one),
-                             times=times)
-  
+                             times=gyro_times)
   gyro_two <- pull_waveforms(signal=gyro %>% select(time=time, data=two),
-                             times=times)
+                             times=gyro_times)
   gyro_three <- pull_waveforms(signal=gyro %>% select(time=time, data=three),
-                             times=times)
-  
+                             times=gyro_times)
   # mine the extremum of each waveform as a feature
   extremum_one <- gyro_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
   extremum_two <- gyro_two %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
   extremum_three <- gyro_three %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
   
+  
+  
+  pressure <- data %>% filter(type == "pressure") %>% arrange(time)
+  delay <- 2
+  period <- pressure$time %>% diff %>% mean
+  pressure_times <- times + delay*period
+  
+  pressure_one <- pull_waveforms(signal = pressure %>% select(time=time, data=one),
+                                 times = pressure_times)
+  
   return(tibble(gyro_one, gyro_two, gyro_three, 
                 extremum_one, extremum_two, extremum_three,
+                pressure_one,
                 times))
 }
 
-# Given a dataset containing gyroscope and touch data, create a dataset consisting of features
+# Given a dataset containing sensor and touch data, create a dataset consisting of features
 # In: data tibble with gyroscope and touch entries.
 #     touch can be "touch" with x/y in headers $one $two. use labeled=TRUE.
 #     or touch can be "touch_guess" with no x/y. use labeled=FALSE.
 # Ou: if labeled=TRUE, collect the waveform and features with x/y labels.
 # Ou: if labeled=FALSE, collect the waveform and features
-gyro_from_touch <- function(data, labeled=TRUE) {
+build_df_touch <- function(data, labeled=TRUE) {
   data <- data %>% arrange(time)
   
   ## Use gyro and touch data to mine features
-  gyro <- data %>%
-    filter(type == "gyroscope")
   if (labeled) {
     times <- data %>%
       filter(type == "touch") %>%
@@ -460,7 +472,7 @@ gyro_from_touch <- function(data, labeled=TRUE) {
       filter(type == "touch_predict") %>%
       .$time
   }
-  features <- mine_features(gyro, times)
+  features <- mine_features(data, times)
   
   ## Add labels
   if (labeled) {
@@ -474,13 +486,9 @@ gyro_from_touch <- function(data, labeled=TRUE) {
 }
 
 
-# For testing
-foobar <- model %>% trim(0.3, 0.35)
-gyro <- foobar %>% filter(type == "gyroscope")
-times <- foobar %>% filter(type == "touch") %>% .$time
-signal <- gyro %>% select(time=time, data=one)
 
-gyro_from_touch(model %>% trim(0.7, 0.75), labeled=TRUE)
+# For testing
+build_df_touch(data, labeled=FALSE)
 ```
 
 Great. It only took 300+ lines of code to get here, from the data presented by the Android app to an actual workable tidy learnable format. I'm going to encapsulate this in one function. I'm also going to use the output of the pressure model as a feature.
@@ -498,8 +506,10 @@ pull_pressure_features <- function(result_pair, times) {
   i <- 1
   features <- c()
   for (time in times) {
+    # for each time, get 2 pressure values before it and 6 pressure values after it
     index <- which(pressure_data$time > time)[1]
     values <- pressure_data$p[(index-2):(index+5)]
+    # put the peak in the features
     features[i] <- max(values)
     i <- i + 1
   }
@@ -513,38 +523,36 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
   
   data <- clean_tidbits(tidbits)
   
-  ## Build dataframes for train and test
-  ## 60/40 split
+  ## Portion data into train and test
   prop = 0.6
-  touch_data <- data %>%
-  	filter(type == "touch") %>%
-  	arrange(time)
-  cutoff <- touch_data$time[as.integer(nrow(touch_data)*prop)]
-  train <- data %>%
-    filter(time < cutoff) %>%
-    filter(type %in% c("pressure", "touch")) %>%
-    arrange(time)
-  test <- data %>%
-    filter(time > cutoff) %>%
-    filter(type %in% c("pressure", "touch")) %>%
-    arrange(time)
+  data <- data %>%
+    mutate(set = ifelse(time < quantile(time, prop),
+                        "training", "testing"))
   
-  
-  ## Use pressure data to build a pressure model,
-  result_pair <- train_pressure_model(train, test, width=4)
+  # this is just pressure data with a p-column
+  touch_confidence <- train_pressure_model(data, width=4)
 
-  ## threshold the pressure model for touch_predict tidbits
-  thresholded_testing <- threshold_pressure(result_pair$testing, threshold=0.5) %>%
-    bind_rows(test %>% filter(type=="touch"))
-  ## and combine the results
-  model <- data %>%
-    bind_rows(thresholded_testing %>%
-                filter(type=="touch_predict") %>%
-                select(-p)) %>%
-    bind_rows(thresholded_training %>%
-                filter(type=="touch_predict") %>%
-                select(-p))
+  # Using that p-column, we can try a bunch of different thresholds
+  performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training")
   
+  # pick a good threshold
+  threshold_f1 <- performance_by_threshold %>%
+    slice_max(F1) %>%
+    slice(1) %>%
+    pull(threshold)
+  threshold_fhalf <- performance_by_threshold %>%
+    slice_max(Fhalf) %>%
+    slice(1) %>%
+    pull(threshold)
+  threshold <- mean(c(threshold_f1, threshold_fhalf))
+  thresholded <- threshold_pressure(touch_confidence, threshold)
+  
+  # put the touch_predicts aside and into the big data tibble
+  touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
+  data <- bind_rows(data, touch_predicts)
+  
+  
+  # mine features
   exp_data <- gyro_from_touch(model, labeled=TRUE) %>%
     mutate(deflection = pull_pressure_features(result_pair, times))
 
@@ -561,9 +569,6 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
 <TODO>
 Wait hold up. I need to modify the function above so that when I mine exp_data, I also get a feature from the pressure data. This will be used to predict the radius of touch input. I'll need a helper function so that I can input a vector of times and the p-model data, and it'll mine features for me. I thought about re-using pull_waveforms, but that pulls from zero-centered data. My p-model goes between 0 and 1, so........ maybe check the three values before and the five values after and get the max. That'll be my feature.
 
-```{r}
-
-```
 </TODO>
 
 Alright. Experiment one. Can I discern left/right movement?

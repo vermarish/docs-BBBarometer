@@ -67,24 +67,6 @@ clean_tidbits <- function(tidbits) {
 }
 
 
-data <- clean_tidbits(tidbits)
-
-rm(type_map)
-rm(clean_tidbits)
-
-first_touch = data %>%
-  filter(type=="touch") %>%
-  select(time) %>%
-  min %>%
-  as.double
-
-last_touch = data %>% 
-  filter(type=="touch") %>%
-  select(time) %>%
-  max %>%
-  as.double
-
-range = last_touch - first_touch
 
 # col = {'one', 'two', 'three'}
 scatterplot <- function(data, sensor_type, col, 
