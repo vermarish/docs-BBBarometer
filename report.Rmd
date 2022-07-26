@@ -32,10 +32,10 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 
 
 ```{r include=FALSE}
-#tidbits <- read_csv("data/experiment_1.csv")
+tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
-tidbits <- read_csv("data/trial.csv")
+#tidbits <- read_csv("data/trial.csv")
 #tidbits <- read_csv("data/sporadic.csv")
 ```
 
@@ -44,48 +44,48 @@ tidbits <- read_csv("data/trial.csv")
 ----
 # TODO temporary experiment to look at average pressures
 ```{r}
-tidbits <- read_csv("data/pressure variance.csv")
-data <- clean_tidbits(tidbits)
-pressure_data <- data %>% filter(type=="pressure")
-time <- pressure_data %>% pull(time)
-a=0.1
-b=0.4
-c=0.5
-d=0.86
-
-plot1 <- pressure_data %>% 
-  ggplot(aes(x=time, y=one)) + 
-  geom_point() + geom_line() + 
-  geom_vline(xintercept=quantile(time,c(a,b,c,d)), color="red") +
-  ggtitle("Pressure signal")
-
-first_half = pressure_data %>% filter(time > quantile(time,a) & time < quantile(time,b))
-second_half = pressure_data %>% filter(time > quantile(time,c) & time < quantile(time,d))
-foo <- data.frame(pressure=first_half$one, variance="low")
-bar <- data.frame(pressure=second_half$one, variance="high")
-foobar <- bind_rows(foo, bar) %>% mutate(variance=factor(variance)) %>% tibble()
-
-means <- foobar %>% 
-  group_by(variance) %>%
-  summarize(mean=mean(pressure))
-
-# First a boxplot
-plot2 <- foobar %>%
-  ggplot(aes(y=pressure, x=variance)) +
-  geom_boxplot() +
-  geom_point(aes(y=mean, x=variance), color="red", data=means) +
-  ggtitle("Medians of pressure signals")
-
-# Then a histogram
-plot3 <- foobar %>%
-  ggplot(aes(x=pressure)) +
-  geom_histogram() +
-  facet_grid(vars(variance)) +
-  ggtitle("Distributions of pressure signals")
-
-plot1
-plot2
-plot3
+# tidbits <- read_csv("data/pressure variance.csv")
+# data <- clean_tidbits(tidbits)
+# pressure_data <- data %>% filter(type=="pressure")
+# time <- pressure_data %>% pull(time)
+# a=0.1
+# b=0.4
+# c=0.5
+# d=0.86
+# 
+# plot1 <- pressure_data %>% 
+#   ggplot(aes(x=time, y=one)) + 
+#   geom_point() + geom_line() + 
+#   geom_vline(xintercept=quantile(time,c(a,b,c,d)), color="red") +
+#   ggtitle("Pressure signal")
+# 
+# first_half = pressure_data %>% filter(time > quantile(time,a) & time < quantile(time,b))
+# second_half = pressure_data %>% filter(time > quantile(time,c) & time < quantile(time,d))
+# foo <- data.frame(pressure=first_half$one, variance="low")
+# bar <- data.frame(pressure=second_half$one, variance="high")
+# foobar <- bind_rows(foo, bar) %>% mutate(variance=factor(variance)) %>% tibble()
+# 
+# means <- foobar %>% 
+#   group_by(variance) %>%
+#   summarize(mean=mean(pressure))
+# 
+# # First a boxplot
+# plot2 <- foobar %>%
+#   ggplot(aes(y=pressure, x=variance)) +
+#   geom_boxplot() +
+#   geom_point(aes(y=mean, x=variance), color="red", data=means) +
+#   ggtitle("Medians of pressure signals")
+# 
+# # Then a histogram
+# plot3 <- foobar %>%
+#   ggplot(aes(x=pressure)) +
+#   geom_histogram() +
+#   facet_grid(vars(variance)) +
+#   ggtitle("Distributions of pressure signals")
+# 
+# plot1
+# plot2
+# plot3
 ```
 It looks like the median is pretty resistant to change. I could use height above the median as a factor...
 but wait
@@ -193,7 +193,8 @@ source("phase_one_functions.R")  # literally just the following functions:
 touch_confidence <- train_pressure_model(data, width=4)
 
 # Using that p-column, we can try a bunch of different thresholds
-performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training")
+performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training") %>%
+  .$performance_by_threshold
 ```
 
 Here's what the result of phase one looks like. The choice in threshold is explained later.
@@ -213,8 +214,8 @@ thresholded <- threshold_pressure(touch_confidence, threshold=threshold)
 touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
 data <- bind_rows(data, touch_predicts)
 
-a=0.8
-w=0.1
+a=0.5
+w=0.3
 
 scatterplot_pressure_model(data, touch_confidence,
                            a=a, b=a+w,
@@ -481,7 +482,7 @@ pull_waveforms <- function(signal, times) {
 
 # In: TIME-SORTED data tibble with ONLY timestamped gyroscope entries
 # Ou: feature tibble containing each wave
-mine_features <- function(data, times) {
+mine_features <- function(data, touch_confidence, times) {
   # Mining features with pull_waveforms works better when delayed by 7-10 samples, to get closer to the center of a peak.
   gyro <- data %>% filter(type=="gyroscope") %>% arrange(time)
   delay <- 10
@@ -507,12 +508,15 @@ mine_features <- function(data, times) {
   period <- pressure$time %>% diff %>% mean
   pressure_times <- times + delay*period
   
-  pressure_one <- pull_waveforms(signal = pressure %>% select(time=time, data=one),
-                                 times = pressure_times)
+  pressure_one <- pull_waveforms(signal=touch_confidence %>% select(time=time, data=p),
+                                 times=pressure_times)
+  
+  extremum_p <- pressure_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
   
   return(tibble(gyro_one, gyro_two, gyro_three, 
                 extremum_one, extremum_two, extremum_three,
                 pressure_one,
+                extremum_p,
                 times))
 }
 
@@ -522,7 +526,7 @@ mine_features <- function(data, times) {
 #     or touch can be "touch_guess" with no x/y. use labeled=FALSE.
 # Ou: if labeled=TRUE, collect the waveform and features with x/y labels.
 # Ou: if labeled=FALSE, collect the waveform and features
-build_df_touch <- function(data, labeled=TRUE) {
+build_df_touch <- function(data, touch_confidence, labeled=TRUE) {
   data <- data %>% arrange(time)
   
   ## Use gyro and touch data to mine features
@@ -535,7 +539,7 @@ build_df_touch <- function(data, labeled=TRUE) {
       filter(type == "touch_predict") %>%
       .$time
   }
-  features <- mine_features(data, times)
+  features <- mine_features(data, touch_confidence, times)
   
   ## Add labels
   if (labeled) {
@@ -550,7 +554,8 @@ build_df_touch <- function(data, labeled=TRUE) {
 
 
 
-# For testing
+# For testing. 
+# TODO Remove when the function works, and refactor
 build_df_touch(data, labeled=FALSE)
 ```
 
@@ -592,22 +597,12 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
     mutate(set = ifelse(time < quantile(time, prop),
                         "training", "testing"))
   
-  # this is just pressure data with a p-column
+  # Predict touch ~ pressure (training dataset)
   touch_confidence <- train_pressure_model(data, width=4)
 
-  # Using that p-column, we can try a bunch of different thresholds
-  performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training")
-  
-  # pick a good threshold
-  threshold_f1 <- performance_by_threshold %>%
-    slice_max(F1) %>%
-    slice(1) %>%
-    pull(threshold)
-  threshold_fhalf <- performance_by_threshold %>%
-    slice_max(Fhalf) %>%
-    slice(1) %>%
-    pull(threshold)
-  threshold <- mean(c(threshold_f1, threshold_fhalf))
+  # Select a threshold (using training dataset)
+  threshold_trials <- evaluate_thresholds(data, touch_confidence, sets="training")
+  threshold <- mean(c(threshold_trials$threshold_F1, threshold_trials$threshold_Fhalf))
   thresholded <- threshold_pressure(touch_confidence, threshold)
   
   # put the touch_predicts aside and into the big data tibble
@@ -616,17 +611,13 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
   
   
   # mine features
-  exp_data <- gyro_from_touch(model, labeled=TRUE) %>%
-    mutate(deflection = pull_pressure_features(result_pair, times))
+  exp_data <- build_df_touch(model, labeled=TRUE)
 
   
   result <- list()
   result$exp_data <- exp_data
-  result$pressure_training <- result_pair$training
-  result$pressure_testing <- result_pair$testing
   return(result)
 }
-
 ```
 
 <TODO>

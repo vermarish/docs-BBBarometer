@@ -13,7 +13,7 @@
 #
 # and a 5th column for the label
 build_df <- function(pressure_data, width=4, incidences=2) {
-  df <- data.frame(matrix(rep(NA,width + 1), nrow=1))
+  df <- data.frame(matrix(rep(NA,width + 2), nrow=1))
   df <- na.omit(df)
   colnames(df)[ncol(df)] = "label"
   
@@ -44,7 +44,7 @@ build_df <- function(pressure_data, width=4, incidences=2) {
       } else {
         label = 0
       }
-      df[nrow(df)+1,] = c(diff(pressure_reading), label)
+      df[nrow(df)+1,] = c(diff(pressure_reading), max(pressure_reading), label)
     }
     i = i + 1
   }
@@ -80,14 +80,11 @@ train_pressure_model <- function(data, width=4, incidences=2) {
   test_df <- build_df(test, width=width, incidences=incidences)
   
   ## Fit the model
-  touch_model <- glm(label ~ . + 0, 
+  touch_model <- glm(label ~ ., 
                      data=train_df,
                      family = "binomial")
   
-  touch_model <- glm(label ~ X1 + X2 + 0,
-                     data=train_df,
-                     family="binomial")
-  
+
   ## TODO let's try fitting a model with lasso regularization
   touch_model_lasso <- glmnet(x=as.matrix(train_df %>% select(-label)),
                               y=train_df$label,
@@ -310,4 +307,19 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   
   performance_by_threshold <- performance_by_threshold %>%
     filter(threshold > min_threshold)
+  
+  # For output, find the best threshold by each F-statistic
+  best_thresholds <- performance_by_threshold %>%
+    pivot_longer(cols=c("F1","Fhalf","F2"), names_to="metric", values_to="value") %>%
+    group_by(metric) %>%
+    slice_max(value)
+  
+  value <- best_thresholds$value
+  value_names <- best_thresholds$metric
+  threshold <- best_thresholds$threshold
+  threshold_names <- paste("threshold", value, sep="_")
+  
+  c(list(performance_by_threshold=performance_by_threshold),
+    split(value, value_names), 
+    split(threshold, threshold_names))
 }
