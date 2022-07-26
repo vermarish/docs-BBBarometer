@@ -41,6 +41,69 @@ tidbits <- read_csv("data/trial.csv")
 
 ## Data Cleaning
 
+----
+# TODO temporary experiment to look at average pressures
+```{r}
+tidbits <- read_csv("data/pressure variance.csv")
+data <- clean_tidbits(tidbits)
+pressure_data <- data %>% filter(type=="pressure")
+time <- pressure_data %>% pull(time)
+a=0.1
+b=0.4
+c=0.5
+d=0.86
+
+plot1 <- pressure_data %>% 
+  ggplot(aes(x=time, y=one)) + 
+  geom_point() + geom_line() + 
+  geom_vline(xintercept=quantile(time,c(a,b,c,d)), color="red") +
+  ggtitle("Pressure signal")
+
+first_half = pressure_data %>% filter(time > quantile(time,a) & time < quantile(time,b))
+second_half = pressure_data %>% filter(time > quantile(time,c) & time < quantile(time,d))
+foo <- data.frame(pressure=first_half$one, variance="low")
+bar <- data.frame(pressure=second_half$one, variance="high")
+foobar <- bind_rows(foo, bar) %>% mutate(variance=factor(variance)) %>% tibble()
+
+means <- foobar %>% 
+  group_by(variance) %>%
+  summarize(mean=mean(pressure))
+
+# First a boxplot
+plot2 <- foobar %>%
+  ggplot(aes(y=pressure, x=variance)) +
+  geom_boxplot() +
+  geom_point(aes(y=mean, x=variance), color="red", data=means) +
+  ggtitle("Medians of pressure signals")
+
+# Then a histogram
+plot3 <- foobar %>%
+  ggplot(aes(x=pressure)) +
+  geom_histogram() +
+  facet_grid(vars(variance)) +
+  ggtitle("Distributions of pressure signals")
+
+plot1
+plot2
+plot3
+```
+It looks like the median is pretty resistant to change. I could use height above the median as a factor...
+but wait
+in linear regression with an intercept, subtracting the median value from a signal doesn't change the fit at all, does it? 
+Fit one: y ~ pressure + beta0 $y = \beta_0 + \beta_1p$
+Denote the optimum parameters (optimum given by minimizing $RSS$) as:
+ * $\beta_0$: $\hat{\beta_0}$
+ * $\beta_1$: $\hat{\beta_1}$
+ 
+Fit two: y ~ (pressure-median) + beta $y = \beta_0 + \beta_1(p-\text{med}(p))$
+Consider the following parameters
+ * $\beta_0$: $\hat{\beta_0}+\beta_1\text{med}(p)$
+ * $\beta_1$: $\hat{\beta_1}$
+ 
+This will lead to the same fitting of $\hat{y}$, and so this will lead to the same $RSS$. 
+
+So LOL I don't need to do a linear transformation of the input variables. Hey, shouldn't that kind of thing be a theorem or a corollary? A linear transformation of predictors does not affect the fit of a linear model.
+----
 
 ```{r}
 # Clean tidbits and create tibble `data`
