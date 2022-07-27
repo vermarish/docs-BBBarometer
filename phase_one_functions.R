@@ -15,6 +15,7 @@
 build_df <- function(pressure_data, width=4, incidences=2) {
   df <- data.frame(matrix(rep(NA,width + 2), nrow=1))
   df <- na.omit(df)
+  colnames(df)[ncol(df)-1] = "pressure"
   colnames(df)[ncol(df)] = "label"
   
   i = 1
@@ -44,6 +45,7 @@ build_df <- function(pressure_data, width=4, incidences=2) {
       } else {
         label = 0
       }
+      # <windowed first derivative of pressure> | <max windowed pressure> | label
       df[nrow(df)+1,] = c(diff(pressure_reading), max(pressure_reading), label)
     }
     i = i + 1
@@ -80,9 +82,54 @@ train_pressure_model <- function(data, width=4, incidences=2) {
   test_df <- build_df(test, width=width, incidences=incidences)
   
   ## Fit the model
-  touch_model <- glm(label ~ ., 
-                     data=train_df,
+  #model <- glm(label ~ ., 
+                #data=train_df,
+                #family = "binomial")
+  link <- function(x) {1/(1+exp(-1*(x)))}
+  # Naive model
+  train_df_1 <- train_df
+  test_df_1 <- test_df
+  model1 <- glm(label ~ ., 
+                     data=train_df_1,
                      family = "binomial")
+  RSS1 <- sum((link(predict(model1, test_df_1)) - test_df_1$label)^2)
+  
+  # Center pressure, zero-intercept
+  train_df_2 <- train_df %>% mutate(pressure = pressure - median(pressure))
+  test_df_2 <- test_df %>% mutate(pressure = pressure - median(pressure))
+  model2 <- glm(label ~ . + 0,
+                data=train_df_2,
+                family="binomial")
+  RSS2 <- sum((link(predict(model2, test_df_2)) - test_df_2$label)^2)
+  
+  # Naive, regress on X1 and X2,X3
+  train_df_3 <- train_df_1
+  test_df_3 <- test_df_1
+  model3 <- glm(label ~ X1 + X2 + X3 + pressure, 
+                data=train_df_1,
+                family = "binomial")
+  RSS3 <- sum((link(predict(model3, test_df_3)) - test_df_3$label)^2)
+  
+  # Naive, regress on X1 and X3+X4
+  train_df_4 <- train_df %>% mutate(a=X1, b=X3+X4) %>% select(a,b,pressure,label)
+  test_df_4 <- test_df %>% mutate(a=X1, b=X3+X4) %>% select(a,b,pressure,label)
+  model4 <- glm(label ~ ., 
+                data=train_df_4,
+                family = "binomial")
+  RSS4 <- sum((link(predict(model4, test_df_4)) - test_df_4$label)^2)
+  
+  # Stupid
+  train_df_5 <- train_df %>% select(-pressure)
+  test_df_5 <- test_df %>% select(-pressure)
+  model5 <- glm(label ~ ., 
+                data=train_df_5,
+                family = "binomial")
+  RSS5 <- sum((link(predict(model5, test_df_5)) - test_df_5$label)^2)
+  
+  train_df <- train_df_5
+  test_df <- test_df_5
+  touch_model <- model5
+  
   
 
   ## TODO let's try fitting a model with lasso regularization

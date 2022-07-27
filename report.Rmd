@@ -32,11 +32,11 @@ My phone has a gyroscope and a barometer, which respectively measure rotational 
 
 
 ```{r include=FALSE}
-tidbits <- read_csv("data/experiment_1.csv")
+#tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
-#tidbits <- read_csv("data/trial.csv")
-tidbits <- read_csv("data/sporadic.csv")
+tidbits <- read_csv("data/trial.csv")
+#tidbits <- read_csv("data/sporadic.csv")
 ```
 
 ## Data Cleaning
@@ -129,7 +129,7 @@ After training a binary classifier (logit distribution), we will then threshold 
 ### 1a: Examine pressure data
 
 ```{r}
-scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
+#scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
 #scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1, stem=TRUE)
 #scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2, stem=TRUE)
 ```
@@ -220,15 +220,15 @@ data <- bind_rows(data, touch_predicts)
 a=0.5
 w=0.1
 
-scatterplot_pressure_model(data, touch_confidence,
-                           a=a, b=a+w,
-                           threshold=threshold,
-                           sensor="pressure", col="one")
-
-scatterplot_pressure_model(data, touch_confidence,
-                           a=a, b=a+w,
-                           threshold=threshold,
-                           sensor="gyroscope", col="one")
+# scatterplot_pressure_model(data, touch_confidence,
+#                            a=a, b=a+w,
+#                            threshold=threshold,
+#                            sensor="pressure", col="one")
+# 
+# scatterplot_pressure_model(data, touch_confidence,
+#                            a=a, b=a+w,
+#                            threshold=threshold,
+#                            sensor="gyroscope", col="one")
 
 rm(touch_predicts, a, w)
 ```
@@ -297,6 +297,12 @@ plot1 <- performance_by_threshold %>%
   geom_vline(xintercept=1, color="black", size=1) +
   geom_hline(yintercept=0, color="black", size=1)
 
+png("plot1_model5.png")
+plot1
+dev.off()
+```
+
+```{r}
 
 plot2 <- ggplot() +
   geom_col(data=performance_by_threshold %>%
@@ -343,6 +349,7 @@ plot3 <- performance_by_threshold_long %>%
            data=performance_by_threshold_long %>%
              group_by(metric) %>%
              filter(F==max(F)) %>%
+             filter(threshold==min(threshold)) %>%  # remove competing thresholds
              mutate(Fscore=metric)) +
   labs(y="F (scaled to 1)",
        x="threshold (decreasing)",
@@ -358,7 +365,9 @@ rm(performance_by_threshold_long, threshold_line)
 
 From left to right, the threshold lowers and the model becomes more sensitive (Fig 1). As the recall (blue) approaches 1, the precision of positive predictions (red) decreases.
 ```{r}
+png("plot1_model1.png")
 plot1
+dev.off()
 ```
 
 > But proportions are too abstract; let's count the actual classifications. 
@@ -374,7 +383,9 @@ plot2
 I thought about using the unit norm or the geometric mean of precision and recall, but I decided on F-score because it's [well-documented](https://en.wikipedia.org/wiki/F-score). I can weight it so that either precision ($F_{0.5}$) or recall ($F_2$) is more important. Let's throw that on the previous plot.
 
 ```{r}
+png("plot2b_model5.png")
 plot2b
+dev.off()
 ```
 
 > Which metric is better?
@@ -413,7 +424,7 @@ plot3
 * TPR = TP/(TP+FN). The denominator is a constant, equal to the number of "touch" datapoints in the training data. Thus, the plot of TPR~threshold is proportional to TP~threshold. The reason TP dips below full is because the concept of thresholding a signal makes no sense when that threshold is near the minimum value of the signal. For example, 
 
 ```{r} 
-touch_confidence %>% ggplot(aes(x=time, y=p)) + geom_line() + geom_hline(yintercept=0.2, colour="grey", linetype=2)
+touch_confidence %>% ggplot(aes(x=time, y=p)) + geom_line() + geom_hline(yintercept=0.2, colour="grey", linetype=2) + ggtitle("This threshold is nonsensical")
 ```  
 
 * It might make sense to only use the threshold where TPR is non-increasing.
