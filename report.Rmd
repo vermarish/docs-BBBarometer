@@ -36,7 +36,7 @@ tidbits <- read_csv("data/experiment_1.csv")
 
 # TODO just use the line above
 #tidbits <- read_csv("data/trial.csv")
-#tidbits <- read_csv("data/sporadic.csv")
+tidbits <- read_csv("data/sporadic.csv")
 ```
 
 ## Data Cleaning
@@ -187,10 +187,13 @@ source("phase_one_functions.R")  # literally just the following functions:
 # Assumes all training data happens before testing data.
 ```
 
+# TODO this plot can be used to identify points to mark as 1 or as 0
+
+build_df(train, width=5, incidences=4) %>% tibble() %>% mutate(label=factor(label)) %>% mutate(row=1:872) %>% ggplot(aes(x=row, y=X6, color=label, alpha=label)) + geom_point() + scale_alpha_manual(values=c(0.2,0.3), breaks=factor(c(0,1))) + xlim(250,500)
 
 ```{r}
 # this is just pressure data with a p-column
-touch_confidence <- train_pressure_model(data, width=4)
+touch_confidence <- train_pressure_model(data, width=5, incidences=4)
 
 # Using that p-column, we can try a bunch of different thresholds
 performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training") %>%
@@ -215,7 +218,7 @@ touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
 data <- bind_rows(data, touch_predicts)
 
 a=0.5
-w=0.3
+w=0.1
 
 scatterplot_pressure_model(data, touch_confidence,
                            a=a, b=a+w,
