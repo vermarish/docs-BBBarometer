@@ -135,9 +135,9 @@ train_pressure_model <- function(data, width=4, incidences=2) {
   RSS6 <- sum((link(predict(model6, test_df_6)) - test_df_6$label)^2)
   
   
-  train_df <- train_df_6
-  test_df <- test_df_6
-  touch_model <- model6
+  train_df <- train_df_4
+  test_df <- test_df_4
+  touch_model <- model4
   
   
 
