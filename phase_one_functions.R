@@ -126,9 +126,18 @@ train_pressure_model <- function(data, width=4, incidences=2) {
                 family = "binomial")
   RSS5 <- sum((link(predict(model5, test_df_5)) - test_df_5$label)^2)
   
-  train_df <- train_df_5
-  test_df <- test_df_5
-  touch_model <- model5
+  # log(pressure)
+  train_df_6 <- train_df %>% mutate(pressure = log(pressure-min(pressure)+1))
+  test_df_6 <- test_df %>% mutate(pressure = log(pressure-min(pressure)+1))
+  model6 <- glm(label ~ ., 
+                data=train_df_6,
+                family = "binomial")
+  RSS6 <- sum((link(predict(model6, test_df_6)) - test_df_6$label)^2)
+  
+  
+  train_df <- train_df_6
+  test_df <- test_df_6
+  touch_model <- model6
   
   
 
@@ -345,26 +354,25 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   
   # Removing thresholds that are too low. See point 5 and 6.
   min_threshold <- performance_by_threshold %>% 
-    filter(F2 == max(F2)) %>% 
-    arrange(desc(threshold)) %>% 
-    slice(1) %>%
+    filter(TP < FP) %>%  # precision < 0.5 is garbage
+    slice_max(threshold) %>% 
     pull(threshold)
-  
-  min_threshold <- min_threshold - 0.05
+  if (length(min_threshold) == 0)  { min_threshold = 0 }
   
   performance_by_threshold <- performance_by_threshold %>%
     filter(threshold > min_threshold)
-  
+
   # For output, find the best threshold by each F-statistic
   best_thresholds <- performance_by_threshold %>%
     pivot_longer(cols=c("F1","Fhalf","F2"), names_to="metric", values_to="value") %>%
     group_by(metric) %>%
-    slice_max(value)
+    slice_max(value) %>%
+    slice_max(threshold)
   
   value <- best_thresholds$value
   value_names <- best_thresholds$metric
   threshold <- best_thresholds$threshold
-  threshold_names <- paste("threshold", value, sep="_")
+  threshold_names <- paste("threshold", value_names, sep="_")
   
   c(list(performance_by_threshold=performance_by_threshold),
     split(value, value_names), 

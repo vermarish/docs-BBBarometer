@@ -114,7 +114,7 @@ scatterplot <- function(data, sensor_type, col,
   }
   
   # add title and subtitle
-  duration <- (range*(end-start) / 1e9 ) %>% round(2) %>% toString()
+  duration <- (touch_span*(end-start) / 1e9 ) %>% round(2) %>% toString()
   title <- paste(sensor_type, col)
   if (derivs > 0) { title <- paste(title, "--", derivs, "derivatives") }
   graph <- graph + 

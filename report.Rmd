@@ -129,7 +129,7 @@ After training a binary classifier (logit distribution), we will then threshold 
 ### 1a: Examine pressure data
 
 ```{r}
-#scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
+scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=0)
 #scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=1, stem=TRUE)
 #scatterplot(data, "pressure", "one", 0.7, 0.8, derivs=2, stem=TRUE)
 ```
@@ -195,42 +195,36 @@ build_df(train, width=5, incidences=4) %>% tibble() %>% mutate(label=factor(labe
 # this is just pressure data with a p-column
 touch_confidence <- train_pressure_model(data, width=5, incidences=4)
 
-# Using that p-column, we can try a bunch of different thresholds
-performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="training") %>%
-  .$performance_by_threshold
+# This threshold does pretty well
+threshold <- evaluate_thresholds(data, touch_confidence, sets="training") %>%
+  .$threshold_F1
+
+# this includes touch_predict events and pressure-p measurements
+thresholded <- threshold_pressure(touch_confidence, threshold=threshold)
+
+# Now put the touch_predicts into the big data tibble
+data <- bind_rows(data, thresholded %>% 
+                    filter(type == "touch_predict") %>% 
+                    select(-p))
 ```
 
 Here's what the result of phase one looks like. The choice in threshold is explained later.
 
 ```{r}
-# This threshold did pretty well
-threshold <- performance_by_threshold %>%
-  slice_max(F1) %>%
-  slice(1) %>%
-  pull(threshold)
-# So let's use that threshold.
-
-# this includes touch_predict events and pressure-p measurements
-thresholded <- threshold_pressure(touch_confidence, threshold=threshold)
-
-# put the touch_predicts aside and into the big data tibble
-touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
-data <- bind_rows(data, touch_predicts)
-
 a=0.5
 w=0.1
 
-# scatterplot_pressure_model(data, touch_confidence,
-#                            a=a, b=a+w,
-#                            threshold=threshold,
-#                            sensor="pressure", col="one")
-# 
+model_signal <- scatterplot_pressure_model(data, touch_confidence,
+                           a=a, b=a+w,
+                           threshold=threshold,
+                           sensor_type="pressure", col="one")
+
 # scatterplot_pressure_model(data, touch_confidence,
 #                            a=a, b=a+w,
 #                            threshold=threshold,
 #                            sensor="gyroscope", col="one")
 
-rm(touch_predicts, a, w)
+rm(a, w)
 ```
 
 In the top figure, the red vertical lines are physical taps. The grey signal is pressure data.
@@ -270,6 +264,10 @@ Let's compare PPV and TPR at a bunch of different thresholds.
 #### The graphs
 
 ```{r include=FALSE}
+performance_by_threshold <- evaluate_thresholds(data, touch_confidence, sets="testing") %>%
+  .$performance_by_threshold
+
+
 threshold_line <- geom_vline(xintercept=threshold, color="#D3C4BC", linetype=2)
 
 performance_by_threshold_long <- performance_by_threshold %>%
@@ -297,15 +295,11 @@ plot1 <- performance_by_threshold %>%
   geom_vline(xintercept=1, color="black", size=1) +
   geom_hline(yintercept=0, color="black", size=1)
 
-png("plot1_model5.png")
-plot1
-dev.off()
-```
-
-```{r}
+num_of_touches <- data %>% filter(set=="testing" & type == "touch") %>% nrow()
 
 plot2 <- ggplot() +
   geom_col(data=performance_by_threshold %>%
+             filter(TP>FP) %>%
              pivot_longer(cols=c(TP,FN), names_to="classification", values_to="count"),
            mapping=aes(x=threshold, y=count, fill=classification)) +
   scale_fill_manual(values=c("TP"="#1D8909",    #00BB44
@@ -314,12 +308,12 @@ plot2 <- ggplot() +
   geom_col(data=performance_by_threshold,
            mapping=aes(x=threshold, y=-FP),
            fill="#D01C8B") +
-  scale_x_reverse() +
+  scale_x_reverse(limits=c(1,0)) +
   ggtitle("Classifications by decreasing threshold") +
   threshold_line +
   labs(x="threshold (decreasing)") +
-  theme_minimal()
-  #geom_hline(yintercept=0, color="grey", size=1, linetype=2)
+  theme_minimal() +
+  ylim(-num_of_touches, num_of_touches)
 
 # TODO annotate plot2 with recall
   
@@ -365,9 +359,7 @@ rm(performance_by_threshold_long, threshold_line)
 
 From left to right, the threshold lowers and the model becomes more sensitive (Fig 1). As the recall (blue) approaches 1, the precision of positive predictions (red) decreases.
 ```{r}
-png("plot1_model1.png")
 plot1
-dev.off()
 ```
 
 > But proportions are too abstract; let's count the actual classifications. 
@@ -383,9 +375,7 @@ plot2
 I thought about using the unit norm or the geometric mean of precision and recall, but I decided on F-score because it's [well-documented](https://en.wikipedia.org/wiki/F-score). I can weight it so that either precision ($F_{0.5}$) or recall ($F_2$) is more important. Let's throw that on the previous plot.
 
 ```{r}
-png("plot2b_model5.png")
 plot2b
-dev.off()
 ```
 
 > Which metric is better?
@@ -399,7 +389,33 @@ The coloring in Fig 3 is scaled so that the "best" threshold as measured by each
 ```{r}
 plot3
 ```
+```{r save the figures so far, include=FALSE}
+id=6
 
+while(dev.cur() > 1) dev.off()
+png(paste("fig/fig0_model",id,".png",sep=""), width=720, height=480)
+model_signal
+dev.off()
+
+while(dev.cur() > 1) dev.off()
+png(paste("fig/fig1_model",id,".png",sep=""), width=720, height=480)
+plot1
+dev.off()
+
+while(dev.cur() > 1) dev.off()
+png(paste("fig/fig2b_model",id,".png",sep=""), width=720, height=480)
+plot2b
+dev.off()
+
+while(dev.cur() > 1) dev.off()
+png(paste("fig/fig3_model",id,".png",sep=""), width=720, height=480)
+plot3
+dev.off()
+```
+
+```{r}
+print("skreee")
+```
 
 1. I should try models with and without zero-intercepts.
 2. I should try models with and without some accelerometer data.
@@ -566,11 +582,7 @@ build_df_touch <- function(data, touch_confidence, labeled=TRUE) {
   return(features)
 }
 
-
-
-# For testing. 
-# TODO Remove when the function works, and refactor
-build_df_touch(data, labeled=FALSE)
+# TODO refactor these functions
 ```
 
 Great. It only took 300+ lines of code to get here, from the data presented by the Android app to an actual workable tidy learnable format. I'm going to encapsulate this in one function. I'm also going to use the output of the pressure model as a feature.
