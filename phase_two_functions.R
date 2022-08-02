@@ -50,28 +50,39 @@ mine_features <- function(data, touch_confidence, times) {
   
   pressure_data <- touch_confidence %>% arrange(time)
   delay <- 2  # pressure spike usually happens two samples after a touch event
-  period <- pressure$time %>% diff %>% mean
+  period <- pressure_data$time %>% diff %>% median
   pressure_times <- times + delay*period
   
   i <- 1
   extremum_pressure <- c()
   extremum_p_model <- c()
-  for (time in times) {
+  for (time in pressure_times) {
     # for each time, get 2 pressure values before it and 5 pressure values after it
     index <- which(pressure_data$time > time)[1]
-    values <- 
-      # put the peak in the features
-      extremum_pressure[i] <- max(pressure_data$one[(index-2):(index+4)])
+    
+    # put the peak in the features
+    extremum_pressure[i] <- max(pressure_data$one[(index-2):(index+4)])
     extremum_p_model[i] <- max(pressure_data$p[(index-2):(index+4)])
     i <- i + 1
   }
   
-  return(tibble(gyro_one, gyro_two, gyro_three, 
+  return(tibble(#gyro_one, gyro_two, gyro_three, 
                 extremum_one, extremum_two, extremum_three,
                 extremum_pressure, extremum_p_model,
                 time=times))
 }
 
+
+# Input a dataframe with columns x, y
+# Return the dataframe with added columns `col`, `row`, `digit`
+xy2digit <- function(df) {
+  df %>%
+    mutate(col = 1*(x<380) + 2*(380<x&x<700) + 3*(700<x),
+           row = 1*(y<1550) + 2*(1550<y&y<1680) + 3*(1680<y&y<1880) + 4*(1880<y)) %>%
+    mutate(digit = ifelse(row==4, 0, col+3*row-3)) %>%
+    mutate(digit = factor(digit,
+                          levels=c("1","4","7","2","5","8","0","3","6","9")))
+}
 
 # Given a dataset containing sensor and (touch | touch_predict), create a dataframe 
 # to predict touch location from sensor features.
@@ -104,33 +115,96 @@ build_df_touch <- function(data, touch_confidence, labeled=TRUE) {
       mutate(r=sqrt(u^2 + v^2),
              d=pmin(540-abs(u),1200-abs(v)),
              m=abs(u)+abs(v)) %>%
-      mutate(col = 1*(x<380) + 2*(380<x&x<700) + 3*(700<x),
-             row = 1*(y<1550) + 2*(1550<y&y<1680) + 3*(1680<y&y<1880) + 4*(1880<y)) %>%
-      mutate(digit = ifelse(row==4, 0, col+3*row-3)) %>%
-      mutate(digit = as.factor(digit)) %>%
-      select(-col, -row, -u, -v)
+      mutate(theta = atan2(u,-v)) %>%
+      select(-u, -v) %>%
+      xy2digit()
+      
     
+    
+    # A plot, to view the relations between each of the possible responses
     labels %>%
       ggpairs(mapping=aes(color=digit),
-              columns=c("x","y","r","d","m"))
+              columns=c("x","y","r","d","m"),
+              upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                           "na"),
+              lower=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                           "na"),
+              diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
+      scale_color_brewer(type="qual",
+                         palette="Set3") +
+      theme_bw()
     
     features <- features %>% bind_cols(labels)
   }
-#   
-#   TODO I've got to label this data by row, col, number.
-#     (c1)  (c3)
-# (r1)  1  2  3    
-#       4  5  6
-#       7  8  9
-# (r4)     0       
-# 
-# c1-c2-c3 breaks at 380 and 700
-# 
-# r1-r2-r3-r4 breaks at 1550, 1680, 1880
-# 
-# then the digit at row $r < 4$ and col $c$ is $$c+ 3r - 3$$,
-# and the digit at row 4 is 0.
-
-  
   return(features)
+}
+
+
+
+# from filepath or tidbits, predict touch and build a dataframe of touch_predicts 
+build_experiment <- function(tidbits=NULL, path="data/trial.csv") {
+  if (is.null(tidbits)) {
+    tidbits <- read_csv(path)
+  }
+  
+  data <- clean_tidbits(tidbits)
+  
+  ## Portion data into train and test
+  prop = 0.6
+  data <- data %>%
+    mutate(set = ifelse(time < quantile(time, prop),
+                        "training", "testing"))
+  
+  # Predict touch ~ pressure (training dataset)
+  touch_confidence <- train_pressure_model(data, width=5, incidences=4)
+  
+  # Select a threshold (using training dataset)
+  threshold_trials <- evaluate_thresholds(data, touch_confidence, sets="training")
+  threshold <- mean(c(threshold_trials$threshold_F1, threshold_trials$threshold_Fhalf))
+  thresholded <- threshold_pressure(touch_confidence, threshold)
+  
+  # put the touch_predicts aside and into the big data tibble
+  touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
+  data <- bind_rows(data, touch_predicts)
+  
+  # mine features
+  exp_data_labeled <- build_df_touch(data, touch_confidence, labeled=TRUE)
+  exp_data_unlabeled <- build_df_touch(data, touch_confidence, labeled=FALSE)
+  
+  # join touch_predicts with touches
+  times_touch <- exp_data_labeled$time
+  times_predict <- exp_data_unlabeled$time
+  event_id_touch = integer(length(times_touch))
+  event_id_predict = integer(length(times_predict))
+  radius = 3 * quantile(diff(touch_confidence$time), 0.5)
+  j = 1
+  k = 1
+  event_id = 1
+  while (j < length(times_touch) & k < length(times_predict)) {
+    t_touch = times_touch[j]
+    t_predict = times_predict[k]
+    if (abs(t_touch-t_predict) < radius) {
+      event_id_touch[j] = event_id
+      event_id_predict[k] = event_id
+      k = k + 1
+    } else {
+      if (t_touch > t_predict) {
+        k = k + 1
+      } else {
+        j = j + 1
+        event_id = event_id + 1
+      }
+    }
+  }
+  event_id_touch[event_id_touch == 0] = NA
+  event_id_predict[event_id_predict == 0] = NA
+  exp_data_labeled$event_id = event_id_touch
+  exp_data_unlabeled$event_id = event_id_predict
+  
+  result <- full_join(exp_data_labeled, exp_data_unlabeled,
+                      by="event_id",
+                      na_matches="never",
+                      suffix=c("_touch", "_predict"))
+  
+  return(result)
 }
