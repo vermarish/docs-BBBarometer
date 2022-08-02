@@ -474,88 +474,22 @@ This peak will have n points. How do I mine this peak?????
 
 I really need some sort of book on statistical methods for time series
 
-#### 2a: Mining
+#### 2a: Collect information from each touch from pressure model
 
 ```{r include=FALSE}
-# Get waveforms (peaks) from a signal at a set of times
-# In: signal: a tibble with two columns: time and data
-#     time: a vector of doubles.
-# Ou: list of waveforms. (each waveform is itself represented as a list)
-pull_waveforms <- function(signal, times) {
-  features <- list()
-  
-  for (time in times) {
-    center <- which(signal$time > time)[1]
-    polarity <- sign(signal$data[center])
-    left <- center
-    right <- center
-    
-    while (left > 1 && sign(signal$data[left - 1]) == polarity) {
-      left <- left - 1
-    }
-    while (right < nrow(signal) && sign(signal$data[right + 1]) == polarity) {
-      right <- right + 1
-    }
-    feature <- signal$data[left:right]
-    features[[length(features)+1]] = feature
-  }
-  return(features)
-}
-
-# 
-# In: Input a dataframe with gyroscope and 
-# Ou: feature tibble containing each wave
-mine_features <- function(data, touch_confidence, times) {
-  # Mining features with pull_waveforms works better when delayed by 7-10 samples, to get closer to the center of a peak.
-  gyro <- data %>% filter(type=="gyroscope") %>% arrange(time)
-  delay <- 10
-  period <- gyro$time %>% diff %>% mean
-  gyro_times <- times + delay*period
-  
-  # mine each waveform
-  gyro_one <- pull_waveforms(signal=gyro %>% select(time=time, data=one),
-                             times=gyro_times)
-  gyro_two <- pull_waveforms(signal=gyro %>% select(time=time, data=two),
-                             times=gyro_times)
-  gyro_three <- pull_waveforms(signal=gyro %>% select(time=time, data=three),
-                             times=gyro_times)
-  # mine the extremum of each waveform as a feature
-  extremum_one <- gyro_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
-  extremum_two <- gyro_two %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
-  extremum_three <- gyro_three %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
-  
-  
-  pressure_data <- touch_confidence %>% arrange(time)
-  delay <- 2  # pressure spike usually happens two samples after a touch event
-  period <- pressure$time %>% diff %>% mean
-  pressure_times <- times + delay*period
-  
-  i <- 1
-  extremum_pressure <- c()
-  extremum_p_model <- c()
-  for (time in times) {
-    # for each time, get 2 pressure values before it and 5 pressure values after it
-    index <- which(pressure_data$time > time)[1]
-    values <- 
-    # put the peak in the features
-    extremum_pressure[i] <- max(pressure_data$one[(index-2):(index+4)])
-    extremum_p_model[i] <- max(pressure_data$p[(index-2):(index+4)])
-    i <- i + 1
-  }
-  
-  return(tibble(gyro_one, gyro_two, gyro_three, 
-                extremum_one, extremum_two, extremum_three,
-                extremum_pressure, extremum_p_model,
-                times))
-}
+# pull_waveforms <- function(signal, times)
+#   Get waveforms (peaks) from a ZERO-CENTERED signal at a set of times
 
 
-# Given a dataset containing sensor and (touch | touch_predict), create a dataframe 
-# to predict touch location from sensor features.
-# if labeled, read from touch data and include x/y
-# if unlabeled, read from touch_predict data (later used to predict x/y)
+# mine_features <- function(data, touch_confidence, times)
+#   Mine features from gyroscope data and pressure data at given times
+
+
 # build_df_touch <- function(data, touch_confidence, labeled=TRUE)
-
+#   Given a dataset containing sensor and (touch | touch_predict), create a dataframe 
+#   to predict touch location from sensor features.
+#     if labeled, read from touch data and include x/y
+#     if unlabeled, read from touch_predict data (later used to predict x/y)
 
 
 source("phase_two_functions.R")
@@ -564,6 +498,7 @@ source("phase_two_functions.R")
 Great. It only took 300+ lines of code to get here, from the data presented by the Android app to an actual workable tidy learnable format. I'm going to encapsulate this in one function. I'm also going to use the output of the pressure model as a feature.
 
 ```{r}
+# from filepath or tidbits, predict touch and build a dataframe of touch_predicts 
 build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
   if (is.null(tidbits)) {
     tidbits <- read_csv(path)
@@ -590,18 +525,56 @@ build_experiment <- function(tidbits=NULL, path="data/experiment_1.csv") {
   data <- bind_rows(data, touch_predicts)
   
   # mine features
-  exp_data <- build_df_touch(data, touch_confidence, labeled=TRUE)
+  exp_data_labeled <- build_df_touch(data, touch_confidence, labeled=TRUE)
+  exp_data_unlabeled <- build_df_touch(data, touch_confidence, labeled=FALSE)
 
+  times_touch <- exp_data_labeled$time
+  times_predict <- exp_data_unlabeled$time
+  event_id_touch = integer(length(times_touch))
+  event_id_predict = integer(length(times_predict))
+  radius = 3 * quantile(diff(touch_confidence$time), 0.5)
+  j = 1
+  k = 1
+  event_id = 1
+  while (j < length(times_touch) & k < length(times_predict)) {
+    t_touch = times_touch[j]
+    t_predict = times_predict[k]
+    if (abs(t_touch-t_predict) < radius) {
+      event_id_touch[j] = event_id
+      event_id_predict[k] = event_id
+      k = k + 1
+    } else {
+      if (t_touch > t_predict) {
+        k = k + 1
+      } else {
+        j = j + 1
+        event_id = event_id + 1
+      }
+    }
+  }
+  event_id_touch[event_id_touch == 0] = NA
+  event_id_predict[event_id_predict == 0] = NA
+  exp_data_labeled$event_id = event_id_touch
+  exp_data_unlabeled$event_id = event_id_predict
+  
+  # for testing, delete later
+  foobar <- full_join(exp_data_labeled, exp_data_unlabeled,
+                      by="event_id",
+                      na_matches="never")
+  
   result <- list()
-  result$exp_data <- exp_data
+  result$df_touch = exp_data_labeled
+  result$df_touch_predict = exp_data_unlabeled
   return(result)
 }
 ```
 
-<TODO>
-Wait hold up. I need to modify the function above so that when I mine exp_data, I also get a feature from the pressure data. This will be used to predict the radius of touch input. I'll need a helper function so that I can input a vector of times and the p-model data, and it'll mine features for me. I thought about re-using pull_waveforms, but that pulls from zero-centered data. My p-model goes between 0 and 1, so........ maybe check the three values before and the five values after and get the max. That'll be my feature.
+Maybe I take the two ataframes
+iterate through
+assign an event_id to each thing
+so they can later be joined on that event_id if desired
 
-</TODO>
+
 
 Alright. Experiment one. Can I discern left/right movement?
 
