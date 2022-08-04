@@ -43,9 +43,9 @@ mine_features <- function(data, touch_confidence, times) {
   gyro_three <- pull_waveforms(signal=gyro %>% select(time=time, data=three),
                                times=gyro_times)
   # mine the extremum of each waveform as a feature
-  extremum_one <- gyro_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
-  extremum_two <- gyro_two %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
-  extremum_three <- gyro_three %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform[[1]]))})
+  extremum_one <- gyro_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform))})
+  extremum_two <- gyro_two %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform))})
+  extremum_three <- gyro_three %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform))})
   
   
   pressure_data <- touch_confidence %>% arrange(time)
@@ -122,17 +122,7 @@ build_df_touch <- function(data, touch_confidence, labeled=TRUE) {
     
     
     # A plot, to view the relations between each of the possible responses
-    labels %>%
-      ggpairs(mapping=aes(color=digit),
-              columns=c("x","y","r","d","m"),
-              upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
-                           "na"),
-              lower=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
-                           "na"),
-              diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
-      scale_color_brewer(type="qual",
-                         palette="Set3") +
-      theme_bw()
+    
     
     features <- features %>% bind_cols(labels)
   }
@@ -201,10 +191,18 @@ build_experiment <- function(tidbits=NULL, path="data/trial.csv") {
   exp_data_labeled$event_id = event_id_touch
   exp_data_unlabeled$event_id = event_id_predict
   
-  result <- full_join(exp_data_labeled, exp_data_unlabeled,
+  events <- full_join(exp_data_labeled, exp_data_unlabeled,
                       by="event_id",
                       na_matches="never",
-                      suffix=c("_touch", "_predict"))
+                      suffix=c("_touch", "_predict")) %>%
+    mutate(isTouch = !is.na(time_touch),
+           isPredict = !is.na(time_predict))
+  
+  result = list(data=data,
+                touch_confidence=touch_confidence,
+                threshold=threshold,
+                threshold_trials=threshold_trials,
+                events=events)
   
   return(result)
 }
