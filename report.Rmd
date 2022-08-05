@@ -505,19 +505,219 @@ I really need some sort of book on statistical methods for time series
 source("phase_two_functions.R")
 ```
 
-### 2b: Look at data
-```{r}
-events <- build_experiment(path="data/trial.csv")
+UH OH. Last time I did this, I didn't really pay attention to mining good gyro data. We'll have to actually think about this now. 
 
-model.1 <- 
+First, let's look at some accelerometer things.
+```{r}
+# run this chunk once
+i = 1
+gyro <- exp1$data %>% filter(type=="gyroscope")
+touch <- exp1$data %>% filter(type=="touch")
+period <- gyro$time %>% diff() %>% median()
+radius_l <- period*30
+radius_r <- period*60
+```
+
+```{r}
+# run this chunk iteratively
+i = i + 1
+#i = 5
+t = touch$time[i]
+a = t - radius_l
+b = t + radius_r
+
+plot_gyro_1 <- scatterplot(exp1$data, "gyroscope", "one", start=0, end=1) +
+  xlim(a, b) +
+  ylim(-0.46, 0.46) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        title=element_blank())
+plot_gyro_2 <- scatterplot(exp1$data, "gyroscope", "two", start=0, end=1) +
+  xlim(a, b) +
+  ylim(-0.41, 0.41) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        title=element_blank())
+plot_gyro_3 <- scatterplot(exp1$data, "gyroscope", "three", start=0, end=1) +
+  xlim(a, b) +
+  ylim(-0.2, 0.2) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        title=element_blank())
+
+plot_gyro_1_d <- scatterplot(exp1$data, "gyroscope", "one", start=0, end=1, derivs=1, stem=TRUE) +
+  xlim(a, b) +
+  ylim(-0.04, 0.04) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        title=element_blank())
+plot_gyro_2_d <- scatterplot(exp1$data, "gyroscope", "two", start=0, end=1, derivs=1, stem=TRUE) +
+  xlim(a, b) +
+  ylim(-0.042, 0.042) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        title=element_blank())
+plot_gyro_3_d <- scatterplot(exp1$data, "gyroscope", "three", start=0, end=1, derivs=1, stem=TRUE) +
+  xlim(a, b) +
+  ylim(-0.04, 0.04) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        title=element_blank())
+
+
+
+ggarrange(plot_gyro_1, plot_gyro_2, plot_gyro_3, 
+          nrow=1, legend=FALSE)
+ggarrange(plot_gyro_1_d, plot_gyro_2_d, plot_gyro_3_d, 
+          nrow=1, legend=FALSE)
+
+#foobar <- scatterplot(exp1$data, "gyroscope", "one", start=0.4, end=0.45)
+```
+
+Maybe a sine basis (DFT) ?
+Or a wavelet basis (wavelets)
+or maybe human-interpretable features
+* polarity of steepest change
+* peak after, peak before
+* (half-height width)(height of each segment)
+* area under each segment
+* 
+
+
+### 2b: Look at data
+
+These first plots give me a broad exposition into the data
+
+```{r}
+exp1 <- build_experiment(path="data/trial.csv")
+events <- exp1$events
+
+plot_responses <- events %>%
+  filter(isTouch) %>%
+  ggpairs(mapping=aes(color=digit),
+          columns=c("x","y","r","d","m","theta"),
+          upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                       "na"),
+          lower=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                       "na"),
+          diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
+  scale_color_brewer(type="qual",
+                     palette="Set3") +
+  theme_bw()
+
+
+plot_xy <- events %>%
+  filter(isTouch) %>%
+  ggpairs(mapping=aes(color=as.factor(col)),
+          columns=c("x", "y", 
+                    "extremum_one_predict", 
+                    "extremum_two_predict", 
+                    "extremum_three_predict", 
+                    "extremum_pressure_predict", 
+                    "extremum_p_model_predict"),
+          upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                       "na"),
+          lower=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                       "na"),
+          diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
+  #scale_color_brewer(type="qual",
+                     #palette="Set3") +
+  theme_bw()
+
+plot_r_m_d_theta <- events %>%
+  filter(isTouch) %>%
+  ggpairs(mapping=aes(color=as.factor(row)),
+          columns=c("r", "m", "d", "theta", 
+                    "extremum_one_predict", 
+                    "extremum_two_predict", 
+                    "extremum_three_predict", 
+                    "extremum_pressure_predict", 
+                    "extremum_p_model_predict"),
+          upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+                       "na"),
+          lower=list(continuous = "blank", combo = "facethist", discrete = "facetbar", na =
+                       "na"),
+          diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
+  theme_bw()
+
+plot2b_extrema_comparison <- events %>%
+  filter(isTouch) %>%
+  select(extremum_one_touch, extremum_two_touch, extremum_three_touch,
+         extremum_one_predict, extremum_two_predict, extremum_three_predict) %>%
+  ggpairs()
+
+#plot_responses
+#plot_xy
+#plot_r_m_d_theta
+#plot2b_extrema_comparison
+
+```
+
+```{r}
+a=0.4
+w=0.05
+
+b=a+w
+scatterplot(exp1$data, "gyroscope", "two", start=a, end=b, derivs=1, stem=TRUE) #+
+  #geom_point(aes(x=time_predict, y=extremum_two_predict),
+             #data=events)
+```
+
+
+
+These next plots include some key results
+```{r}
+plot2b_1 <- events %>%
+  filter(isTouch) %>%
+  ggplot(aes(x=extremum_two_touch,
+             y=d,
+             color=as.factor(col))) +
+  geom_point()
+plot2b_1
+
+plot2b_2 <- events %>%
+  filter(isTouch) %>%
+  ggplot(aes(x=extremum_two_touch,
+             y=x,
+             color=as.factor(col))) +
+  geom_point()
+plot2b_2
 ```
 
 ### 2c: x+y ~ .  (naive)
 
+```{r}
+model.1.x <- lm(x ~ extremum_one_predict + extremum_two_predict + extremum_three_predict + extremum_pressure_predict + extremum_p_model_predict,
+              data=events)
+model.1.y <- lm(y ~ extremum_one_predict + extremum_two_predict + extremum_three_predict + extremum_pressure_predict + extremum_p_model_predict,
+              data=events)
+
+model.1.r <- lm(r ~ extremum_one_predict + extremum_two_predict + extremum_three_predict + extremum_pressure_predict + extremum_p_model_predict,
+              data=events)
+
+model.1.d <- lm(d ~ extremum_one_predict + extremum_two_predict + extremum_three_predict + extremum_pressure_predict + extremum_p_model_predict,
+              data=events)
+
+model.1.m <- lm(m ~ extremum_one_predict + extremum_two_predict + extremum_three_predict + extremum_pressure_predict + extremum_p_model_predict,
+              data=events)
+
+model.1.theta <- lm(theta ~ extremum_one_predict + extremum_two_predict + extremum_three_predict + extremum_pressure_predict + extremum_p_model_predict,
+              data=events)
+
+summary(model.1.x)
+summary(model.1.y)
+summary(model.1.r)
+summary(model.1.d)
+summary(model.1.m)
+summary(model.1.theta)
+```
+
 ### 2d: x+y ~ (r|d|m) + theta
 
 
-### 
+### 2e: ((1)) + theta ~ .
+
+### 2f: Combine 2c and 2e
 
 
 EVERYTHING HERE IS DEPRECATED

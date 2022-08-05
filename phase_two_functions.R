@@ -134,7 +134,7 @@ build_df_touch <- function(data, touch_confidence, labeled=TRUE) {
 # from filepath or tidbits, predict touch and build a dataframe of touch_predicts 
 build_experiment <- function(tidbits=NULL, path="data/trial.csv") {
   if (is.null(tidbits)) {
-    tidbits <- read_csv(path)
+    tidbits <- read_csv(path, show_col_types=FALSE)
   }
   
   data <- clean_tidbits(tidbits)

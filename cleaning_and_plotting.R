@@ -130,7 +130,9 @@ scatterplot <- function(data, sensor_type, col,
     filter(type == "touch" | type == "touch_predict") %>%
     filter(time > open & time < close)
   graph <- graph + 
-    geom_vline(aes(xintercept=time, linetype=type, color=type, size=type), data=touch_data) +
+    geom_vline(aes(xintercept=time, linetype=type, color=type, size=type), 
+               alpha=0.6,
+               data=touch_data) +
     scale_size_discrete(range=c(1,1.5)) +
     labs(color="Events", linetype="Events", size="Events")
   
