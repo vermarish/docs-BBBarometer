@@ -73,6 +73,94 @@ mine_features <- function(data, touch_confidence, times) {
 }
 
 
+
+
+# OKAY NOW WE'RE REDOING mine_features()
+# uncomment for debugging
+times <- data %>% filter(type=="touch_predict") %>% pull(time)
+
+# In: dataframe with columns `time` and `signal`
+# Out: A named 
+features_from_windowed_gyro <- function(data) {
+  
+}
+
+
+# Mine features from gyroscope data and pressure data at given times
+# In: Input a dataframe with gyroscope data and a touch_confidence dataframe
+# Out: feature tibble containing each wave
+mine_features <- function(data, touch_confidence, times) {
+  gyro <- data %>% filter(type=="gyroscope")
+  
+  period <- gyro$time %>% diff %>% median
+  lead <- 20*period  # we know touch_predicts tend to happen 1 or 2 pressure samples after touch events
+                     # which is about 15 or 30 gyroscope samples
+  times_gyro <- times - lead
+  
+  features <- matrix(data=NA,
+                     nrow=length(times_gyro),
+                     ncol=9)#,
+                     
+                     #dimnames=list(NULL,c("foo", "bar")))
+  
+  # need the bottom height, top height, t width, subsequent data points (?)
+  
+  for (t_i in 1:length(times_gyro)) {
+    t = times_gyro[t_i]
+    open = t-period*25
+    close = t+period*25
+    windowed_signal = gyro %>% filter(time > open & time < close)
+    cols = c("one", "two", "three")
+    for (c in 1:3) {
+      col = cols[c]
+      waveform = windowed_signal %>% 
+        select(time=time, signal=col) %>%
+        mutate(energy = abs(lead(signal,2)-lag(signal,2)),
+               diff = lead(signal,1) - signal,
+               i = 1:nrow(waveform))
+      # # to view
+      # waveform %>% ggplot(aes(x=time)) + geom_point(aes(y=signal), color="black") + geom_point(aes(y=diff), color="blue")
+      
+      sample_center = waveform %>% 
+        mutate(i = 1:nrow(waveform)) %>%
+        slice_max(energy) %>% slice(1)
+      center = sample_center$i
+      left = sample_center$i
+      right = sample_center$i
+      while (sign(waveform$diff[left]) == sign(waveform$diff[center]) & left > 1) {
+        left = left - 1
+      }
+      while (sign(waveform$diff[right] == sign(waveform$diff[center])) & right < 49) {
+        right = right + 1
+      }
+      signal_features = c(waveform$signal[left], waveform$signal[right], left-right)
+      w = length(signal_features)
+      features[t_i, ((c-1)*w+1):(c*w)] = signal_features
+    }
+  }
+  return(features)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Input a dataframe with columns x, y
 # Return the dataframe with added columns `col`, `row`, `digit`
 xy2digit <- function(df) {
