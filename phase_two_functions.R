@@ -24,7 +24,8 @@ pull_waveforms <- function(signal, times) {
 }
 
 
-
+# TODO REMOVE THIS WHOLE FUNCTION, WE REDID IT BELOW
+#
 # Mine features from gyroscope data and pressure data at given times
 # In: Input a dataframe with gyroscope data and a touch_confidence dataframe
 # Ou: feature tibble containing each wave
@@ -74,18 +75,6 @@ mine_features <- function(data, touch_confidence, times) {
 
 
 
-
-# OKAY NOW WE'RE REDOING mine_features()
-# uncomment for debugging
-times <- data %>% filter(type=="touch_predict") %>% pull(time)
-
-# In: dataframe with columns `time` and `signal`
-# Out: A named 
-features_from_windowed_gyro <- function(data) {
-  
-}
-
-
 # Mine features from gyroscope data and pressure data at given times
 # In: Input a dataframe with gyroscope data and a touch_confidence dataframe
 # Out: feature tibble containing each wave
@@ -99,7 +88,7 @@ mine_features <- function(data, touch_confidence, times) {
   
   features <- matrix(data=NA,
                      nrow=length(times_gyro),
-                     ncol=9)#,
+                     ncol=10)#,
                      
                      #dimnames=list(NULL,c("foo", "bar")))
   
@@ -138,7 +127,16 @@ mine_features <- function(data, touch_confidence, times) {
       features[t_i, ((c-1)*w+1):(c*w)] = signal_features
     }
   }
-  return(features)
+  features[,10] = times
+  contents = c("left", "right", "width")
+  feature_names = c()
+  for (i in 1:3) {
+    feature_names = c(feature_names, paste(cols[i], contents, sep="_"))
+  }
+  feature_names = c(feature_names, "time")
+  colnames(features) = feature_names
+  
+  return(as.tibble(features))
 }
 
 
