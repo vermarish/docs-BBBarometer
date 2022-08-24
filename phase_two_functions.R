@@ -1,80 +1,3 @@
-# Get waveforms (peaks) from a ZERO-CENTERED signal at a set of times
-# In: signal: a tibble with two columns: time and data
-#     time: a vector of doubles.
-# Ou: list of waveforms. (each waveform is itself represented as a list)
-pull_waveforms <- function(signal, times) {
-  features <- list()
-  
-  for (time in times) {
-    center <- which(signal$time > time)[1]
-    polarity <- sign(signal$data[center])
-    left <- center
-    right <- center
-    
-    while (left > 1 && sign(signal$data[left - 1]) == polarity) {
-      left <- left - 1
-    }
-    while (right < nrow(signal) && sign(signal$data[right + 1]) == polarity) {
-      right <- right + 1
-    }
-    feature <- signal$data[left:right]
-    features[[length(features)+1]] = feature
-  }
-  return(features)
-}
-
-
-# TODO REMOVE THIS WHOLE FUNCTION, WE REDID IT BELOW
-#
-# Mine features from gyroscope data and pressure data at given times
-# In: Input a dataframe with gyroscope data and a touch_confidence dataframe
-# Ou: feature tibble containing each wave
-mine_features <- function(data, touch_confidence, times) {
-  # Mining features with pull_waveforms works better when delayed by 7-10 samples, to get closer to the center of a peak.
-  gyro <- data %>% filter(type=="gyroscope") %>% arrange(time)
-  delay <- 10
-  period <- gyro$time %>% diff %>% mean
-  gyro_times <- times + delay*period
-  
-  # mine each waveform
-  gyro_one <- pull_waveforms(signal=gyro %>% select(time=time, data=one),
-                             times=gyro_times)
-  gyro_two <- pull_waveforms(signal=gyro %>% select(time=time, data=two),
-                             times=gyro_times)
-  gyro_three <- pull_waveforms(signal=gyro %>% select(time=time, data=three),
-                               times=gyro_times)
-  # mine the extremum of each waveform as a feature
-  extremum_one <- gyro_one %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform))})
-  extremum_two <- gyro_two %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform))})
-  extremum_three <- gyro_three %>% sapply(function(waveform) {sign(waveform[[1]][1]) * max(abs(waveform))})
-  
-  
-  pressure_data <- touch_confidence %>% arrange(time)
-  delay <- 2  # pressure spike usually happens two samples after a touch event
-  period <- pressure_data$time %>% diff %>% median
-  pressure_times <- times + delay*period
-  
-  i <- 1
-  extremum_pressure <- c()
-  extremum_p_model <- c()
-  for (time in pressure_times) {
-    # for each time, get 2 pressure values before it and 5 pressure values after it
-    index <- which(pressure_data$time > time)[1]
-    
-    # put the peak in the features
-    extremum_pressure[i] <- max(pressure_data$one[(index-2):(index+4)])
-    extremum_p_model[i] <- max(pressure_data$p[(index-2):(index+4)])
-    i <- i + 1
-  }
-  
-  return(tibble(#gyro_one, gyro_two, gyro_three, 
-                extremum_one, extremum_two, extremum_three,
-                extremum_pressure, extremum_p_model,
-                time=times))
-}
-
-
-
 # Mine features from gyroscope data and pressure data at given times
 # In: Input a dataframe with gyroscope data and a touch_confidence dataframe
 # Out: feature tibble containing each wave
@@ -88,7 +11,8 @@ mine_features <- function(data, touch_confidence, times) {
   
   features <- matrix(data=NA,
                      nrow=length(times_gyro),
-                     ncol=13)
+                     ncol=14)
+  set = character(length(times_gyro))
   
   for (t_i in 1:length(times_gyro)) {
     t = times_gyro[t_i]
@@ -100,53 +24,67 @@ mine_features <- function(data, touch_confidence, times) {
     for (c in 1:3) {
       col = cols[c]
       waveform = windowed_signal %>% 
-        select(time=time, signal=col) %>%
+        select(time=time, signal=col, set) %>%
         mutate(energy = abs(lead(signal,2)-lag(signal,2)),
                diff = lead(signal,1) - signal)
       
-      # # to view
-      # waveform %>% ggplot(aes(x=time)) + geom_point(aes(y=signal), color="black") + geom_point(aes(y=diff), color="blue")
-      
+      # get the sample center
       sample_center = waveform %>% 
         mutate(i = 1:nrow(waveform)) %>%
         slice_max(energy) %>% slice(1)
+      
+      # find the indices for the left/right edge of the sample
       center = sample_center$i
       left = sample_center$i
       right = sample_center$i
-      
-      # TODO remove
-      # waveform %>%
-      #   ggplot() +
-      #   geom_point(aes(x=time, y=signal)) +
-      #   geom_vline(xintercept=t) +
-      #   ylim(-0.5, 0.5) +
-      #   geom_point(aes(x=time, y=signal),
-      #              data=data.frame(time=c(waveform$time[left], waveform$time[right]),
-      #                              signal=c(waveform$signal[left], waveform$signal[right])),
-      #              color="red")
-
-      
       while (sign(waveform$diff[left]) == sign(waveform$diff[center]) & left > 1) {
         left = left - 1
       }
       while (sign(waveform$diff[right]) == sign(waveform$diff[center]) & right < 74) {
         right = right + 1
       }
+      
+      # mine them features
       signal_features = c(waveform$signal[left], waveform$time[left], waveform$signal[right], waveform$time[right])
       w = length(signal_features)
       features[t_i, ((c-1)*w+1):(c*w)] = signal_features
     }
+    set[t_i] = sample_center$set
   }
+  
+  
+  # include timestamps
   features[,dim(features)[2]] = times
+  
+  # include pressure data
+  pressure = touch_confidence
+  d = pressure$time %>% diff %>% median()
+  pressure$time = pressure$time + 2*d
+  times_df = tibble(time=times)
+  max_pressure_df <- difference_inner_join(times_df, touch_confidence, by="time", max_dist=3*d) %>%
+    group_by(time.x) %>%
+    summarise(pressure = max(one)) %>%
+    select(time=time.x, pressure)
+  max_pressure_df_calibrated <- left_join(times_df, max_pressure_df, by="time")
+  features[,dim(features)[2] - 1] = max_pressure_df_calibrated$pressure
+  
+  
+  
+  
+  # create feature names
   contents = c("left", "left_time", "right", "right_time")
   feature_names = c()
   for (i in 1:3) {
     feature_names = c(feature_names, paste(cols[i], contents, sep="_"))
   }
-  feature_names = c(feature_names, "time")
-  colnames(features) = feature_names
+  feature_names = c(feature_names, "pressure", "time")
+
   
-  return(as.tibble(features))
+  # conversion to tibble for return
+  feature_tibble <- as_tibble(features)
+  names(feature_tibble) = feature_names
+  feature_tibble$set = factor(set)
+  return(feature_tibble)
 }
 
 
@@ -172,12 +110,19 @@ mine_features <- function(data, touch_confidence, times) {
 # Input a dataframe with columns x, y
 # Return the dataframe with added columns `col`, `row`, `digit`
 xy2digit <- function(df) {
-  df %>%
-    mutate(col = 1*(x<380) + 2*(380<x&x<700) + 3*(700<x),
-           row = 1*(y<1550) + 2*(1550<y&y<1680) + 3*(1680<y&y<1880) + 4*(1880<y)) %>%
-    mutate(digit = ifelse(row==4, 0, col+3*row-3)) %>%
-    mutate(digit = factor(digit,
-                          levels=c("1","4","7","2","5","8","0","3","6","9")))
+  if ("x" %in% names(df)) {
+    df <- df %>% mutate(col = 1*(x<380) + 2*(380<x&x<700) + 3*(700<x))
+  }
+  if ("y" %in% names(df)) {
+    df <- df %>% mutate(row = 1*(y<1550) + 2*(1550<y&y<1680) + 3*(1680<y&y<1880) + 4*(1880<y))
+  }
+  if ("x" %in% names(df) & "y" %in% names(df)) {
+    df <- df %>% 
+      mutate(digit = ifelse(row==4, 0, col+3*row-3)) %>%
+      mutate(digit = factor(digit,
+                            levels=c("1","4","7","2","5","8","0","3","6","9")))
+  }
+  return(df)
 }
 
 # Given a dataset containing sensor and (touch | touch_predict), create a dataframe 
@@ -292,7 +237,11 @@ build_experiment <- function(tidbits=NULL, path="data/trial.csv") {
                       na_matches="never",
                       suffix=c("_touch", "_predict")) %>%
     mutate(isTouch = !is.na(time_touch),
-           isPredict = !is.na(time_predict))
+           isPredict = !is.na(time_predict)) %>%
+    mutate(set = coalesce(set_touch, set_predict)) %>%
+    select(-set_predict, -set_touch)
+    
+  
   
   result = list(data=data,
                 touch_confidence=touch_confidence,
