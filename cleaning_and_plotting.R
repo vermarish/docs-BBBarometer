@@ -63,6 +63,12 @@ clean_tidbits <- function(tidbits) {
     mutate(type = sapply(type, type_map)) %>%
     arrange(time)
   
+  # subtract median value of pressure
+  median_pressure = tidbits %>% filter(type=="pressure") %>% pull(one) %>% median()
+  pressure_locations = tidbits$type == "pressure"
+  tidbits$one[pressure_locations] = tidbits$one[pressure_locations] - median_pressure
+  
+  
   return(tidbits)
 }
 
