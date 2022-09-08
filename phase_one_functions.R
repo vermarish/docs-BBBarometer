@@ -13,52 +13,58 @@
 #
 # and a 5th column for the label
 build_df <- function(pressure_data, width=4, incidences=2) {
-  df <- data.frame(matrix(rep(NA,width + 2), nrow=1))
-  df <- na.omit(df)
-  colnames(df)[ncol(df)-1] = "pressure"
-  colnames(df)[ncol(df)] = "label"
-  
-  i = 1
-  quota = 0
-  while (i <= nrow(pressure_data) - 2*width) {
-    event <- pressure_data %>%
-      slice(i:(i+width+3))
-    
-    pressure_reading <- event %>%
-      filter(type == "pressure") %>%
-      head(n=width+1) %>%
-      .$one
-    
-    
-    if (event$type[1] == "touch") {
-      # then don't process it.
-      # 
-      # instead, start labeling subsequent pressure_events as 1
-      # quota is a "hyperparameter" for labeling data:
-      #     the number of windows recorded following a touch event
-      quota = incidences
-    } else {  # event$type[1] == "pressure"
-      # then label as 1 only if we need to meet the quota
-      if (quota > 0) {
-        label = 1
-        quota = quota - 1
-      } else {
-        label = 0
-      }
-      # <windowed first derivative of pressure> | <max windowed pressure> | label
-      df[nrow(df)+1,] = c(diff(pressure_reading), max(pressure_reading), label)
-    }
+  # compute pressure difference
+  diffs <- pressure_data %>%
+    filter(type=="pressure") %>%
+    select(one, time) %>%
+    mutate(X1=c(diff(one),0))
+  # splay out pressure difference to create multiple columns
+  i = 2
+  while (i <= width) {
+    varName = paste0("X",i)
+    diffs[varName] = lead(diffs["X1"], i-1)
     i = i + 1
   }
-  return(df)
+  
+  # compute max pressure
+  i = 1
+  pressure_max = numeric(length(diffs$one))
+  while (i < length(diffs$one) - width) {
+    pressure_max[i] = max(diffs$one[i + 0:width])
+    i = i + 1
+  }
+  diffs$pressure = pressure_max
+  
+  # label each row by touch / no touch
+  touch_times = pressure_data %>%
+    filter(type=="touch") %>%
+    pull(time)
+  pressure_times = pressure_data %>%
+    filter(type=="pressure") %>%
+    pull(time)
+  positions = numeric(length(touch_times))
+  for (i in seq(length(touch_times))) {
+    positions[i] = Position(function(x) x > touch_times[i], pressure_times)
+  }
+  next_positions = positions
+  for (i in seq(incidences - 1)) {
+    next_positions = next_positions + 1
+    positions = c(positions, next_positions)
+  }
+  positions = sort(positions[positions < nrow(diffs)])
+  diffs$label = 0
+  diffs$label[positions] = 1
+  
+  diffs %>%
+    select(-one, -time) %>%
+    slice(1:(nrow(diffs)-width)) %>%
+    as.data.frame()
 }
 
 
 
-
-
-
 # input: tibbles with the tidbits, and a width parameter
+# output: a tibble of pressure tidbits with an additional "p" column
 # this function will restructure the tidbits for regression,
 #                    train the model,
 #                    and return the fitting for train and test.
@@ -86,33 +92,13 @@ train_pressure_model <- function(data, width=4, incidences=2) {
                 #data=train_df,
                 #family = "binomial")
   link <- function(x) {1/(1+exp(-1*(x)))}
-  # Naive model
-  train_df_1 <- train_df
-  test_df_1 <- test_df
-  model1 <- glm(label ~ ., 
-                     data=train_df_1,
-                     family = "binomial")
-  RSS1 <- sum((link(predict(model1, test_df_1)) - test_df_1$label)^2)
   
-  # Center pressure, zero-intercept
-  train_df_2 <- train_df %>% mutate(pressure = pressure - median(pressure))
-  test_df_2 <- test_df %>% mutate(pressure = pressure - median(pressure))
-  model2 <- glm(label ~ . + 0,
-                data=train_df_2,
-                family="binomial")
-  RSS2 <- sum((link(predict(model2, test_df_2)) - test_df_2$label)^2)
-  
-  # Naive, regress on X1 and X2,X3
-  train_df_3 <- train_df_1
-  test_df_3 <- test_df_1
-  model3 <- glm(label ~ X1 + X2 + X3 + pressure, 
-                data=train_df_1,
-                family = "binomial")
-  RSS3 <- sum((link(predict(model3, test_df_3)) - test_df_3$label)^2)
   
   # Naive, regress on X1 and X3+X4
-  train_df_4 <- train_df %>% mutate(a=X1, b=X3+X4) %>% select(a,b,pressure,label)
-  test_df_4 <- test_df %>% mutate(a=X1, b=X3+X4) %>% select(a,b,pressure,label)
+  train_df_4 <- train_df %>% 
+    mutate(a=X1, b=X3+X4, pressure = pressure - median(pressure)) %>% select(a,b,pressure,label)
+  test_df_4 <- test_df %>% 
+    mutate(a=X1, b=X3+X4, pressure = pressure - median(pressure)) %>% select(a,b,pressure,label)
   model4 <- glm(label ~ ., 
                 data=train_df_4,
                 family = "binomial")
@@ -138,13 +124,6 @@ train_pressure_model <- function(data, width=4, incidences=2) {
   train_df <- train_df_4
   test_df <- test_df_4
   touch_model <- model4
-  
-  
-
-  ## TODO let's try fitting a model with lasso regularization
-  touch_model_lasso <- glmnet(x=as.matrix(train_df %>% select(-label)),
-                              y=train_df$label,
-                              family="binomial")
   
   
   ## Handle the values fitted in training
