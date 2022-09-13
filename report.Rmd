@@ -507,107 +507,6 @@ I really need some sort of book on statistical methods for time series
 source("phase_two_functions.R")
 ```
 
-UH OH. Last time I did this, I didn't really pay attention to mining good gyro data. We'll have to actually think about this now. 
-
-First, let's look at some accelerometer things.
-```{r}
-exp1 <- build_experiment(path="data/trial.csv")
-events <- exp1$events
-
-# run this chunk once
-i = 1
-gyro <- exp1$data %>% filter(type=="gyroscope")
-touch <- exp1$data %>% filter(type=="touch")
-period <- gyro$time %>% diff() %>% median()
-radius_l <- period*30
-radius_r <- period*90
-```
-
-```{r}
-# run this chunk iteratively
-i = i + 1
-
-t = touch$time[i]
-a = t - radius_l
-b = t + radius_r
-
-plot_gyro_1 <- scatterplot(exp1$data, "gyroscope", "one", start=0, end=1) +
-  xlim(a, b) +
-  ylim(-0.46, 0.46) +
-  theme(axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        title=element_blank()) +
-  geom_point(aes(x=one_right_time_predict, y=one_right_predict),
-             data=events, color="blue", shape=2, size=2) +
-  geom_point(aes(x=one_left_time_predict, y=one_left_predict),
-             data=events, color="blue", shape=2, size=2) +
-  geom_point(aes(x=one_right_time_touch, y=one_right_touch),
-             data=events, color="red") +
-  geom_point(aes(x=one_left_time_touch, y=one_left_touch),
-             data=events, color="red")
-
-plot_gyro_2 <- scatterplot(exp1$data, "gyroscope", "two", start=0, end=1) +
-  xlim(a, b) +
-  ylim(-0.46, 0.46) +
-  theme(axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        title=element_blank()) +
-  geom_point(aes(x=two_right_time_predict, y=two_right_predict),
-             data=events, color="blue", shape=2, size=2) +
-  geom_point(aes(x=two_left_time_predict, y=two_left_predict),
-             data=events, color="blue", shape=2, size=2) +
-  geom_point(aes(x=two_right_time_touch, y=two_right_touch),
-             data=events, color="red") +
-  geom_point(aes(x=two_left_time_touch, y=two_left_touch),
-             data=events, color="red")
-
-plot_gyro_3 <- scatterplot(exp1$data, "gyroscope", "three", start=0, end=1) +
-  xlim(a, b) +
-  ylim(-0.26, 0.26) +
-  theme(axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        title=element_blank()) +
-  geom_point(aes(x=three_right_time_predict, y=three_right_predict),
-             data=events, color="blue", shape=2, size=2) +
-  geom_point(aes(x=three_left_time_predict, y=three_left_predict),
-             data=events, color="blue", shape=2, size=2) +
-  geom_point(aes(x=three_right_time_touch, y=three_right_touch),
-             data=events, color="red") +
-  geom_point(aes(x=three_left_time_touch, y=three_left_touch),
-             data=events, color="red")
-
-fig1 <- ggarrange(plot_gyro_1, plot_gyro_2, plot_gyro_3,
-          nrow=1, legend=FALSE)
-fig1
-```
-
-Maybe a sine basis (DFT) ?
-Or a wavelet basis (wavelets)
-or maybe human-interpretable features
-* polarity of steepest change
-* peak after, peak before
-* (half-height width)(height of each segment)
-* area under each segment
-
-i=7
-  The highest difference typically accompanies touch input, but may not always be prominent.
-i=12, i=15
-  What if the gyroscope deviance isn't a climb or a fall but a peak or a valley?
-
-
-
-TODO cite https://wires-onlinelibrary-wiley-com.offcampus.lib.washington.edu/doi/full/10.1002/wics.1392
-
-I quite like the idea of
-1. Use Perceptually Important Points (PIP)s to reduce the dimension of the signal
-2. Find the largest diff in PIP close to our touch event
-3. Record the adjacent PIPs as our features
-
-But the shape of a 
-
-You know what, let's keep it simple
-
-1. Compute a 4-diff and find the largest
 
 
 ### 2b: Look at data
@@ -615,92 +514,18 @@ You know what, let's keep it simple
 These first plots give me a broad exposition into the data
 
 ```{r}
-plot_responses <- events %>%
-  filter(isTouch) %>%
-  ggpairs(mapping=aes(color=digit),
-          columns=c("x","y","r","d","m","theta"),
-          upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
-                       "na"),
-          lower=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
-                       "na"),
-          diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
-  scale_color_brewer(type="qual",
-                     palette="Set3") +
-  theme_bw()
-
-training_data <- events %>%
-  filter(isTouch) %>%
-  select(one_left_touch, one_right_touch, one_width_touch,
-         two_left_touch, two_right_touch, two_width_touch,
-         three_left_touch, three_right_touch, three_width_touch,
-         x, y, r, m, d, theta)
-
-model.1 <- lm(x ~ . - y - r - m - d - theta,
-              data=training_data)
-
-training_data.2 <- training_data %>% 
-  mutate(one = one_right_touch - one_left_touch, 
-         two = two_right_touch - two_left_touch, 
-         three = three_right_touch - three_left_touch) %>%
-  select(one, two, three, x)
-
-ggpairs(training_data.2)
-
-
-
-model.2 <- lm(x ~ .,
-              data=training_data.2)
-
-events %>%
-  ggplot() +
-  geom_histogram(aes(colour=factor(col), x=two_right_touch-two_left_touch))
-
-
-# plot_xy <- events %>%
+# plot_responses <- events %>%
 #   filter(isTouch) %>%
-#   ggpairs(mapping=aes(color=as.factor(col)),
-#           columns=c("x", "y", 
-#                     "extremum_one_predict", 
-#                     "extremum_two_predict", 
-#                     "extremum_three_predict", 
-#                     "extremum_pressure_predict", 
-#                     "extremum_p_model_predict"),
+#   ggpairs(mapping=aes(color=digit),
+#           columns=c("x","y","r","d","m","theta"),
 #           upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
 #                        "na"),
 #           lower=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
 #                        "na"),
 #           diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
-#   #scale_color_brewer(type="qual",
-#                      #palette="Set3") +
+#   scale_color_brewer(type="qual",
+#                      palette="Set3") +
 #   theme_bw()
-# 
-# plot_r_m_d_theta <- events %>%
-#   filter(isTouch) %>%
-#   ggpairs(mapping=aes(color=as.factor(row)),
-#           columns=c("r", "m", "d", "theta", 
-#                     "extremum_one_predict", 
-#                     "extremum_two_predict", 
-#                     "extremum_three_predict", 
-#                     "extremum_pressure_predict", 
-#                     "extremum_p_model_predict"),
-#           upper=list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
-#                        "na"),
-#           lower=list(continuous = "blank", combo = "facethist", discrete = "facetbar", na =
-#                        "na"),
-#           diag=list(continuous = "blankDiag", discrete = "blankDiag", na = "blankDiag")) +
-#   theme_bw()
-# 
-# plot2b_extrema_comparison <- events %>%
-#   filter(isTouch) %>%
-#   select(extremum_one_touch, extremum_two_touch, extremum_three_touch,
-#          extremum_one_predict, extremum_two_predict, extremum_three_predict) %>%
-#   ggpairs()
-
-#plot_responses
-#plot_xy
-#plot_r_m_d_theta
-#plot2b_extrema_comparison
-
 ```
 
 ```{r}
@@ -735,24 +560,6 @@ scatterplot(exp1$data, "gyroscope", "two", start=a, end=b, stem=TRUE) +
 
 
 
-These next plots include some key results
-```{r}
-plot2b_1 <- events %>%
-  filter(isTouch) %>%
-  ggplot(aes(x=extremum_two_touch,
-             y=d,
-             color=as.factor(col))) +
-  geom_point()
-plot2b_1
-
-plot2b_2 <- events %>%
-  filter(isTouch) %>%
-  ggplot(aes(x=extremum_two_touch,
-             y=x,
-             color=as.factor(col))) +
-  geom_point()
-plot2b_2
-```
 
 ### 2c: x+y ~ .  (naive)
 
@@ -768,6 +575,7 @@ events.training <- events %>%
   select(one_left_touch, one_right_touch, one_width_touch,
          two_left_touch, two_right_touch, two_width_touch,
          three_left_touch, three_right_touch, three_width_touch,
+         pressure=pressure_touch,
          x, y, r, m, d, theta)
 events.training.response <- events.training %>%
   select(x, y, r, m, d, theta)
@@ -786,6 +594,7 @@ events.testing <- events %>%
   select(one_left_predict, one_right_predict, one_width_predict,
          two_left_predict, two_right_predict, two_width_predict,
          three_left_predict, three_right_predict, three_width_predict,
+         pressure=pressure_predict,
          x, y, r, m, d, theta)
 events.testing.response <- events.testing %>%
   select(x, y, r, m, d, theta)
@@ -837,24 +646,50 @@ prediction = theta.prediction
 plot(prediction$result.testing$fitted, prediction$result.testing$actual)
 ```
 
+How we doing in training and in testing?
+
 ```{r}
-model.x.training <- svm(x=events.training.data,
-                        y=events.training.response$x)
+xy.result.training <- bind_cols(
+  x.prediction$result.training %>%
+    mutate(id=1:nrow(x.prediction$result.training)) %>%
+    select(fitted, actual, id) %>%
+    pivot_longer(cols=c("fitted", "actual"), names_to="data", values_to="x"),
+  y.prediction$result.training %>%
+    mutate(id=1:nrow(y.prediction$result.training)) %>%
+    select(fitted, actual, id) %>%
+    pivot_longer(cols=c("fitted", "actual"), names_to="data", values_to="y")) %>%
+  select(x, y, data=data...2, id=id...1) %>%
+  xy2digit() %>%
+  pivot_wider(id_cols="id", names_from="data", values_from=c("x","y","col","row","digit")) %>%
+  select(-id)
+```
 
-result.x.training <- tibble(residuals = model.x.training$residuals,
-                            fitted = model.x.training$fitted,
-                            actual = model.x.training$fitted + model.x.training$residuals)
+```{r}
+xy.result.testing <- bind_cols(
+  x.prediction$result.testing %>%
+    mutate(id=1:nrow(x.prediction$result.testing)) %>%
+    select(fitted, actual, id) %>%
+    pivot_longer(cols=c("fitted", "actual"), names_to="data", values_to="x"),
+  y.prediction$result.testing %>%
+    mutate(id=1:nrow(y.prediction$result.testing)) %>%
+    select(fitted, actual, id) %>%
+    pivot_longer(cols=c("fitted", "actual"), names_to="data", values_to="y")) %>%
+  select(x, y, data=data...2, id=id...1) %>%
+  xy2digit() %>%
+  pivot_wider(id_cols="id", names_from="data", values_from=c("x","y","col","row","digit")) %>%
+  select(-id)
 
-#plot(result.x.training$fitted, result.x.training$residuals)
-#plot(result.x.training$fitted, result.x.training$actual)
+xy.result.testing %>%
+  select(col_fitted, col_actual) %>%
+  table()
 
+xy.result.testing %>%
+  select(row_fitted, row_actual) %>%
+  table()
 
-fit <- predict(model.x.training, events.testing.data)
-result.x.testing <- tibble(fitted = fit,
-                           actual = events.testing.response$x,
-                           residuals = fitted - actual)
-#plot(result.x.testing$fitted, result.x.testing$residuals)
-#plot(result.x.testing$fitted, result.x.testing$actual)
+xy.result.testing %>%
+  select(digit_fitted, digit_actual) %>%
+  table()
 ```
 
 ### 2d: x+y ~ (r|d|m) + theta
@@ -865,338 +700,135 @@ result.x.testing <- tibble(fitted = fit,
 ### 2f: Combine 2c and 2e
 
 
-EVERYTHING BELOW IS DEPRECATED
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
-|
+## Phase 3: Code-reading
+
+#### Phase 3a: Planning
+
+I need a clean phone with a clean screen protector.  
+I need an app with no unnecessary text, a non-distracting color scheme, and a non-distracting image.  
 
 
 
-Alright. Experiment one. Can I discern left/right movement?
+#### Phase 3b: Prepping Data
+
+Along the way, we will be storing everything in .rda files or something
+
+First, collect a large amount of random data.  
+1a. Clean the tidbits into data  ( IMPORTANT: subtract median pressure at this step )
+                                ( also remove sensor data before/after type -1, type -2)
+1b. Label as 60% as training, 40% as testing [^1]
+1c. Build train_df and test_df separately with build_df(data, width=5, incidences=4)  (cue Jason Bramburger saying you just gotta set some numbers and run with it)
+1d. Build touches from data %>% filter(type=="touch")
+1e. Store data, train_df, test_df, touches as incrementing .rda files for later [^2]
+1f. Combine each thing into one large thing and save that as four big .rda's
+
+[^1] the threshold is part of the overall model, and its selection requires evaluation on an independent set of labeled data to select
+[^2] e.g. data_1, data_2, ..., data_n; train_df_1, train_df_2, ..., train_df_n; ...
+
+Now, we build a model.
+2a. Read train_df and test_df, then build a pressure model manually.
+2b. Save model.
+2c. Build touch_confidence manually. Save touch_confidence.
+2d. Conduct threshold_trials, save threshold, make figures ?
+2e. Threshold the pressure, create data_complete, save as .rda
+2f. Build_df_touch(data_complete, touch_confidence, labeled=TRUE)
+
+Now, we repeat as much as we need to for Jenny's data
+3a. Clean tidbits into data
+3b. Build train_df
+3c. Use saved model to build touch_confidence
+3d. Threshold on the previously chosen threshold
+3e. Put the events in data_complete_jenny
+3f. build_df_touch(data_complete, touch_confidence, labeled=FALSE)
+
+
+
+
+
+Then, collect a large amount of Jenny's number data.
+4a. Again, clean the tidbits into data
+4b. Label as testing this time
+4c. Build test_df
+
+If it all goes well, we can do a random thing.
+
+
+
+#### Phase 3c: Reading Jenny's Number
+
+Let's try reading Jenny's number
 
 ```{r}
-exp1_data <- build_experiment(path="data/experiment_1.csv") %>%
-  .$exp_data %>%
-  mutate(side = ifelse(x > 500, "right", "left"))
-
-# The experiment is distributed left/right
-exp1_data %>% 
-  ggplot(aes(x=x, y=y)) +
-  geom_point() +
-  theme(aspect.ratio=2400/1080) +      ##formatting
-  scale_y_reverse(limits=c(2400,0)) +  ##
-  scale_x_continuous(limits=c(0,1080), ##
-                     position="top") + ##
-  ggtitle("Experiment 1:", subtitle="Can we discern left from right?")
-
-# This scatterplot matrix indicates relation with extrema from two and three
-ggpairs(exp1_data, 
-        columns=c(4:6,8),
-        mapping = ggplot2::aes(color=side))
+# phase_1_data
+# phase_1_train_df
+# phase_1_test_df
+# phase_1_touches
+load("data/phase_1_clean/phase_1_data.Rda")
 
 
-bounds <- exp1_data[4:6] %>% abs() %>% max()
 
-exp1_data %>%
-  ggplot(aes(x=extremum_two, y=extremum_three, color=side)) +
-  geom_point() +
-  geom_hline(yintercept=0, color="#aaaaaa") + 
-  geom_vline(xintercept=0, color="#aaaaaa") + 
-  xlim(-bounds, bounds) +
-  ylim(-bounds, bounds) 
-  ggtitle("Experiment 1 is discernible")
+# Now, we build a model.
+# 2a. Read train_df and test_df, then build a pressure model manually.
+train_df <- phase_1_train_df %>% 
+  mutate(a=X1, b=X3+X4, pressure = pressure - median(pressure)) %>% select(a,b,pressure,label)
+test_df <- phase_1_test_df %>% 
+  mutate(a=X1, b=X3+X4, pressure = pressure - median(pressure)) %>% select(a,b,pressure,label)
+touch_model <- glm(label ~ ., 
+                   data=train_df,
+                   family = "binomial")
+
+# 2b. Save model.
+save(touch_model, file="data/phase_1_clean/touch_model.Rda")
+
+# 2c. Build touch_confidence manually. Save touch_confidence.
+pressure_and_touch <- phase_1_data %>% filter(type %in% c("pressure", "touch"))
+w=5
+pressure_model_data <- build_df(pressure_and_touch, width=w, incidences=4)
+training_data <- pressure_model_data %>% 
+  mutate(a=X1,b=X3+X4) %>%
+  select(a, b, pressure)
+output <- predict(touch_model, 
+                  newdata=training_data)
+fitted.values <- 1/(1+exp(-1*(output))) %>%
+  lead(3, default=0)
+
+pressure <- pressure_and_touch %>%
+  filter(type == "pressure")
+
+touch_confidence <- pressure_and_touch %>%
+  filter(type == "pressure") %>%
+  slice(w:(w+length(output)-1)) %>%
+  bind_cols(p=fitted.values)
+
+
+touch_confidence <- train_pressure_model(phase_1_data, width=5, incidences=4)
+
+
+# let's double check visually
+# a = 0.0, b=0.00002
+data = phase_1_data
+scatterplot_pressure_model(data=phase_1_data, touch_confidence=touch_confidence,
+                           a=0.00005, b=0.00009,
+                           threshold=0.3)
+
+# 2d. Conduct threshold_trials, save threshold, make figures ?
+threshold_trials <- evaluate_thresholds(data=phase_1_data, touch_confidence, sets=c("testing", "training"))
+threshold <- mean(c(threshold_trials$threshold_F1, threshold_trials$threshold_Fhalf))
+threshold = 0.3
+thresholded <- threshold_pressure(touch_confidence, threshold)
+
+# 2e. Threshold the pressure, create data_complete, save as .rda
+touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
+data <- bind_rows(phase_1_data, touch_predicts)
   
-# For SEAL application
-fig1a <- exp1_data %>% 
-  ggplot(aes(x=x, y=y, color=side)) +
-  geom_point() +
-  theme(aspect.ratio=2400/1080) +      ##formatting
-  scale_y_reverse(limits=c(2400,0)) +  ##
-  scale_x_continuous(limits=c(0,1080), ##
-                     position="top") + ##
-  ggtitle("Taps on phone display") +
-  xlab("horizontal pixels") +
-  ylab("vertical pixels")
 
-fig1a
+# 2f. Build_df_touch(data_complete, touch_confidence, labeled=TRUE)
 
-fig1b <- exp1_data %>%
-  ggplot(aes(x=extremum_two, y=extremum_three, color=side)) +
-  geom_point() +
-  geom_hline(yintercept=0, color="#aaaaaa") + 
-  geom_vline(xintercept=0, color="#aaaaaa") + 
-  xlim(-bounds, bounds) +
-  ylim(-bounds, bounds) +
-  xlab("Rotation on y-axis") +
-  ylab("Rotation on z-axis") +
-  ggtitle("Latent space")
-
-fig1b
-
-fig1 <- ggarrange(fig1a, fig1b, common.legend=TRUE, legend="bottom") #TODO export for SEAL
 ```
 
-I can in fact discern left/right movement. Visually, I can already tell that simple decision tree classification would work well for this experiment. I must remember that while experiment 1 is binary classification, the final problem is regression.
 
+Hmm. Issues.
+I'm used to receiving a train consisting of a SINGLE experiment, then building train_df, fitting, predicting, and binding the results back to train.
+I can't do that here.
+But maybe I can get away with using the pre-built model and reshaping the data for model fitting.
 
-Experiment two: Do taps in the center vs. the edge differ in pressure deviation?
- TODO
-```{r}
-exp2 <- build_experiment(path="data/experiment_2.csv")
-
-exp2_data <- exp2 %>%
-  .$exp_data %>%
-  mutate(side = ifelse(y > 1800, "lower", "center"))
-
-exp2_pressure_testing <- exp2$pressure_testing
-
-# The experiment is distributed center/lower
-exp2_data %>% 
-  ggplot(aes(x=x, y=y, color=side)) +
-  geom_point() +
-  theme(aspect.ratio=2400/1080) +      ##formatting
-  scale_y_reverse(limits=c(2400,0)) +  ##
-  scale_x_continuous(limits=c(0,1080), ##
-                     position="top") + ##
-  ggtitle("Experiment 2:", subtitle="Can we discern center from lower?")
-
-
-ggpairs(exp2_data, 
-        columns=c(4:6, 9),
-        mapping = ggplot2::aes(color=side))
-
-
-bounds <- exp2_data[4:6] %>% abs() %>% max()
-
-exp2_data %>%
-  ggplot(aes(x=extremum_two, y=extremum_three, color=side)) +
-  geom_point() +
-  geom_hline(yintercept=0, color="#aaaaaa") + 
-  geom_vline(xintercept=0, color="#aaaaaa") + 
-  xlim(-bounds, bounds) +
-  ylim(-bounds, bounds) +
-  ggtitle("Experiment 2 is not discernible with gyro")
-```
-  
-TODO the data shows this experiment is not answerable by gyro data. I will have to see about using pressure height. This will require getting my hands dirty with the functions, so I will do this later.
-
-TODO ya know, this plot demonstrates that usage of a scatterplot isn't really smart here. The human eye isn't so great at discerning patterns in point clouds. If I learned anything from CSE 412, it's that I can aggregate. Perhaps I can use a diverging colorscheme with a visible center (RdYlBu) to indicate confusion between the two classes. Then, in order to indicate a lack of data, I could alter the luminesence or saturation of the color, or I could even re-add the points on top of the aggregation.
-
-# Experiment 3
-```{r}
-group_by_quantile <- function(vec, num_of_groups=4) {
-  breaks <- seq(from=0, to=1, length.out=num_of_groups+1)
-  quantiles <- quantile(vec, probs=breaks)
-  boundaries <- quantiles[2:length(quantiles)]
-  
-  class <- vec %>% sapply(function(x) {
-    which(x <= boundaries)[1]
-  })
-  
-  return(factor(unname(class)))
-}
-
-
-exp3_data <- build_experiment(path="data/experiment_3.csv") %>%
-  .$exp_data %>%
-  mutate(quartile=group_by_quantile(x+y))
-
-# The experiment is distributed in an arc
-exp3_map <- exp3_data %>% 
-  ggplot(aes(x=x, y=y, color=quartile)) +
-  geom_point() +
-  theme(aspect.ratio=2400/1080) +      ##formatting
-  scale_y_reverse(limits=c(2400,0)) +  ##
-  scale_x_continuous(limits=c(0,1080), ##
-                     position="top") + ##
-  ggtitle("Experiment 3:", subtitle="A simple regression problem\n(one response variable)")
-
-
-# If x and y were distributed in a quarter circle, I would compute the angle of each point around the circle to do regression on a single variable
-# Since x and y are strongly collinear (r=0.97), I can safely discard one of the responses.
-
-# This scatterplot matrix indicates
-exp3_matrix <- ggpairs(exp3_data, 
-        columns=c(4:6,8),
-        mapping = ggplot2::aes(color=quartile))
-
-bounds <- exp3_data[4:6] %>% abs() %>% max()
-
-exp3_space_all <- exp3_data %>%
-  ggplot(aes(x=extremum_one, y=extremum_two, color=quartile)) +
-  geom_point(size=2, alpha=0.8) +
-  geom_hline(yintercept=0, color="#aaaaaa") + 
-  geom_vline(xintercept=0, color="#aaaaaa") + 
-  xlim(-bounds, bounds) +
-  ylim(-bounds, bounds) +
-  ggtitle("Experiment 3", 
-          subtitle="the space seems too cloudy for regression..") +
-  xlab("Rotation on x-axis") +
-  ylab("Rotation on y-axis")
-
-exp3_space_filter <- exp3_data %>%
-  filter(quartile %in% c(1,3)) %>%
-  ggplot(aes(x=extremum_one, y=extremum_two, color=quartile)) +
-  geom_point(size=2, alpha=0.8) +
-  geom_hline(yintercept=0, color="#aaaaaa") + 
-  geom_vline(xintercept=0, color="#aaaaaa") + 
-  xlim(-bounds, bounds) +
-  ylim(-bounds, bounds) +
-  ggtitle("",subtitle="but the results show separation on a medium scale.") +
-  xlab("Rotation on x-axis") +
-  ylab("Rotation on y-axis")
-
-exp3_space <- ggarrange(exp3_space_all, exp3_space_filter)
-
-exp3_map
-exp3_matrix
-exp3_space
-
-
-fig3a <- exp3_map + 
-  ggtitle("Taps on phone display", subtitle=NULL) +
-  xlab("horizontal pixels") +
-  ylab("vertical pixels")
-fig3b <-  ggarrange(exp3_space_all + 
-                      ggtitle("Latent space", subtitle=NULL),
-                    exp3_space_filter + 
-                      ggtitle("Latent space", subtitle="first and third quartiles only"),
-                    nrow=2,
-                    ncol=1,
-                    legend=FALSE)
-fig3b
-
-fig3 <- ggarrange(fig3a, fig3b, common.legend=TRUE, legend="bottom")
-fig3
-```
-
-Okay. I haven't finished experiment 2 yet, but experiments 1 and 3 have given me some faith in this project.
-
-Let's try a realistic dataset.
-
-```{r}
-exp4 <- build_experiment(path="data/raw 3-28-2021.csv")
-
-exp4_data <- exp4$exp_data %>%
-  mutate(col = 1*(x<380) + 2*(380<x&x<700) + 3*(700<x),
-         row = 1*(y<1550) + 2*(1550<y&y<1680) + 3*(1680<y&y<1880) + 4*(1880<y)) %>%
-  mutate(digit = ifelse(row==4, 0, col+3*row-3))
-
-# The deflection is strangely distributed. 
-# There are two modes, visually separable around the median of 0.8.
-hist(exp4_data$deflection, breaks=20)
-quantile(exp4_data$deflection)
-# Coloring exp4_map with group_by_quantile(deflection, num_of_groups=[2 or 4])
-# suggests that there's something valuable here, separating the bottom of the
-# screen (digits 0 and 8) from the rest.
-# To further examine, I will try a continuous color scale.
-# It would be nice to find a transform that makes this distribution uniform, but
-# simple tricks don't seem to work. Thus, I will try something impractical and 
-# check the rank variables.
-
-exp4_data <- exp4_data %>%
-  arrange(deflection) %>%
-  mutate(deflection_rank=1:nrow(exp4_data)) %>%
-  arrange(times)
-
-
-exp4_map <- exp4_data %>% 
-  ggplot(aes(x=x, y=y, color=deflection_rank)) +
-  geom_point(size=3, alpha=0.5) +
-  scale_color_viridis_c() +
-  theme(aspect.ratio=2400/1080) +      ##formatting
-  scale_y_reverse(limits=c(2400,0)) +  ##
-  scale_x_continuous(limits=c(0,1080), ##
-                     position="top") + ##
-  ggtitle("Experiment 4:", subtitle="A real-world scenario")
-
-
-exp4_matrix <- ggpairs(exp4_data, 
-        columns=c(4:6,8))
-
-exp4_map
-exp4_matrix
-
-fig4 <- exp4_map +
-  xlab("horizontal pixels") +
-  ylab("vertical pixels") +
-  ggtitle("Taps on phone display", subtitle="ranked by amount of deflection in pressure sensor")
-```
-
-TODO I've got to label this data by row, col, number.
-    (c1)  (c3)
-(r1)  1  2  3    
-      4  5  6
-      7  8  9
-(r4)     0       
-
-c1-c2-c3 breaks at 380 and 700
-
-r1-r2-r3-r4 breaks at 1550, 1680, 1880
-
-then the digit at row $r < 4$ and col $c$ is $$c+ 3r - 3$$,
-and the digit at row 4 is 0.
-
-
--->

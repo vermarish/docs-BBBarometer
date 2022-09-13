@@ -94,36 +94,14 @@ train_pressure_model <- function(data, width=4, incidences=2) {
   link <- function(x) {1/(1+exp(-1*(x)))}
   
   
-  # Naive, regress on X1 and X3+X4
-  train_df_4 <- train_df %>% 
-    mutate(a=X1, b=X3+X4, pressure = pressure - median(pressure)) %>% select(a,b,pressure,label)
-  test_df_4 <- test_df %>% 
-    mutate(a=X1, b=X3+X4, pressure = pressure - median(pressure)) %>% select(a,b,pressure,label)
-  model4 <- glm(label ~ ., 
-                data=train_df_4,
+  train_df <- train_df %>% 
+    mutate(a=X1, b=X3+X4) %>% select(a,b,pressure,label)
+  test_df <- test_df %>% 
+    mutate(a=X1, b=X3+X4) %>% select(a,b,pressure,label)
+  touch_model <- glm(label ~ ., 
+                data=train_df,
                 family = "binomial")
-  RSS4 <- sum((link(predict(model4, test_df_4)) - test_df_4$label)^2)
-  
-  # Stupid
-  train_df_5 <- train_df %>% select(-pressure)
-  test_df_5 <- test_df %>% select(-pressure)
-  model5 <- glm(label ~ ., 
-                data=train_df_5,
-                family = "binomial")
-  RSS5 <- sum((link(predict(model5, test_df_5)) - test_df_5$label)^2)
-  
-  # log(pressure)
-  train_df_6 <- train_df %>% mutate(pressure = log(pressure-min(pressure)+1))
-  test_df_6 <- test_df %>% mutate(pressure = log(pressure-min(pressure)+1))
-  model6 <- glm(label ~ ., 
-                data=train_df_6,
-                family = "binomial")
-  RSS6 <- sum((link(predict(model6, test_df_6)) - test_df_6$label)^2)
-  
-  
-  train_df <- train_df_4
-  test_df <- test_df_4
-  touch_model <- model4
+  RSS <- sum((link(predict(touch_model, test_df)) - test_df$label)^2)
   
   
   ## Handle the values fitted in training
@@ -254,7 +232,8 @@ scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0
   ggarrange(foo, bar,
             ncol=1, nrow=2,
             labels=c("sensor and touch input","model confidence"),
-            heights=c(1.5,1))
+            heights=c(1.5,1),
+            legend="none")
 }
 
 
@@ -272,9 +251,10 @@ scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0
 #   * F0.5, F1, F2
 evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   dt = 4e7
-  margin = 5*dt  # radius of the window for matching a touch_predict with a touch
+  margin = 8*dt  # radius of the window for matching a touch_predict with a touch
   
   thresholds = seq(0.05, 0.98, 0.01)
+  
   TP = integer(length(thresholds))
   FP = integer(length(thresholds))
   FN = integer(length(thresholds))
@@ -308,7 +288,6 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
     }
     
     classifications <- bind_rows(touch_data, touch_predict_data) %>%
-      arrange(time) %>%
       filter(!(type == "touch_predict" & class == "TP"))  %>% # each TP shows up twice.
       # once for touch,
       # once for touch_predict.
@@ -318,7 +297,42 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
     TP[k] <- classifications["TP"]
     FP[k] <- classifications["FP"]
     FN[k] <- classifications["FN"]
+    
+    classifications_by_set <- bind_rows(touch_data, touch_predict_data) %>%
+      arrange(time) %>%
+      filter(!(type == "touch_predict" & class == "TP")) %>%
+      select(class, set) %>%
+      table()
   }
+  
+  # TODO remove 5 lines up through 30 lines down
+  classifications_by_set
+  # scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-p, -class)), 
+  #                            touch_confidence=touch_confidence,
+  #                            a=0.00001, b=0.00009,
+  #                            threshold=0.3)
+  scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-p, -class)),
+                             touch_confidence=touch_confidence,
+                             a=0.00055, b=0.00057,
+                             threshold=0.3)
+
+  classification_df <- bind_rows(touch_data, touch_predict_data) %>%
+    filter(!(type == "touch_predict" & class == "TP"))
+  {
+    a = 0.00055
+    w = 0.00002
+    scatterplot(data=data %>% bind_rows(events %>% select(-p, -class)), 
+                sensor_type="pressure", col="one",
+                start=a, end=a+w) +
+      geom_point(aes(x=time, y=-0),
+                 color="green",
+                 data=classification_df %>% filter(class == "TP")) +
+      geom_point(aes(x=time, y=-0),
+                 color="red",
+                 data=classification_df %>% filter(class != "TP"))
+  }
+    
+  
   
   performance_by_threshold <- tibble(threshold=thresholds, TP, FN, FP) %>%
     replace_na(list(TP=0, FP=0, FN=0)) %>%
@@ -331,16 +345,23 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
     replace_na(list(F1=0, Fhalf=0, F2=0))
 
   
-  # Removing thresholds that are too low. See point 5 and 6.
-  min_threshold <- performance_by_threshold %>% 
-    filter(TP < FP) %>%  # precision < 0.5 is garbage
-    slice_max(threshold) %>% 
-    pull(threshold)
-  if (length(min_threshold) == 0)  { min_threshold = 0 }
+  # # Removing thresholds that are too low. See point 5 and 6.
+  # min_threshold <- performance_by_threshold %>% 
+  #   filter(TP < FP) %>%  # precision < 0.5 is garbage
+  #   slice_max(threshold) %>% 
+  #   pull(threshold)
+  # if (length(min_threshold) == 0)  { min_threshold = 0 }
+  # performance_by_threshold <- performance_by_threshold %>%
+  #   filter(threshold > min_threshold)
   
+  # # This is my replacement for the above chunk
+  # The above chunk is broken if the filter yields thresholds:
+  #     0.05 0.06 0.07 0.08 0.97 0.98 0.99
+  # because it selects 0.99
   performance_by_threshold <- performance_by_threshold %>%
-    filter(threshold > min_threshold)
-
+    filter(TP > FP)
+  
+  
   # For output, find the best threshold by each F-statistic
   best_thresholds <- performance_by_threshold %>%
     pivot_longer(cols=c("F1","Fhalf","F2"), names_to="metric", values_to="value") %>%
@@ -353,7 +374,7 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   threshold <- best_thresholds$threshold
   threshold_names <- paste("threshold", value_names, sep="_")
   
-  c(list(performance_by_threshold=performance_by_threshold),
-    split(value, value_names), 
-    split(threshold, threshold_names))
+  return(c(list(performance_by_threshold=performance_by_threshold),
+         split(value, value_names), 
+         split(threshold, threshold_names)))
 }
