@@ -1,0 +1,35 @@
+---
+title: "Big Brother Barometer"
+author: "Rishabh Verma"
+date: "2022-09-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This project will show you how your smartphone's accelerometer and pressure sensor can be used as a side-channel attack to read your PIN. 
+
+(scroll to continue)
+
+Let's start by typing in a bunch of random numbers.  
+
+> video appears  
+
+> side-scrolling graph appears with red touches
+
+
+Your phone's barometer is normally used to measure the air pressure.  
+When you tap your phone screen, the barometer records a sharp increase in air pressure.  
+
+> side-scrolling pressure graph appears with red touches
+
+
+
+
+
+
+
+
+

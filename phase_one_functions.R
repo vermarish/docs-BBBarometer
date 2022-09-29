@@ -253,7 +253,8 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   dt = 4e7
   margin = 8*dt  # radius of the window for matching a touch_predict with a touch
   
-  thresholds = seq(0.05, 0.98, 0.01)
+  thresholds = seq(0.05, 0.6, 0.01)
+  # thresholds = 0.3  # TODO remove
   
   TP = integer(length(thresholds))
   FP = integer(length(thresholds))
@@ -264,14 +265,16 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   for (k in seq(length(thresholds))) {
     events <- threshold_pressure(touch_confidence, threshold=thresholds[k]) %>%
       filter(type == "touch_predict") %>%
+      select(-p) %>%
       bind_rows(touches) %>%
       arrange(time) %>%
       # label each event falsely before iterating through and finding true positives
       mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
     
     # only evaluate with the testing data, or with the training data, or whatever
-    events <- events %>%
-      filter(set %in% sets)
+    # events <- events %>%
+    #   filter(set %in% sets)
+    # TODO uncomment above
     
     # two-pointer iteration through touch_data and touch_predict_data  (O(n))
     touch_data <- events %>% filter(type == "touch")
@@ -298,39 +301,39 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
     FP[k] <- classifications["FP"]
     FN[k] <- classifications["FN"]
     
-    classifications_by_set <- bind_rows(touch_data, touch_predict_data) %>%
-      arrange(time) %>%
-      filter(!(type == "touch_predict" & class == "TP")) %>%
-      select(class, set) %>%
-      table()
+    # classifications_by_set <- bind_rows(touch_data, touch_predict_data) %>%
+    #   arrange(time) %>%
+    #   filter(!(type == "touch_predict" & class == "TP")) %>%
+    #   select(class, set) %>%
+    #   table()
   }
   
   # TODO remove 5 lines up through 30 lines down
-  classifications_by_set
-  # scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-p, -class)), 
+  # classifications_by_set
+  # # scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-p, -class)), 
+  # #                            touch_confidence=touch_confidence,
+  # #                            a=0.00001, b=0.00009,
+  # #                            threshold=0.3)
+  # scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-class)),
   #                            touch_confidence=touch_confidence,
-  #                            a=0.00001, b=0.00009,
+  #                            a=0.00055, b=0.00057,
   #                            threshold=0.3)
-  scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-p, -class)),
-                             touch_confidence=touch_confidence,
-                             a=0.00055, b=0.00057,
-                             threshold=0.3)
-
-  classification_df <- bind_rows(touch_data, touch_predict_data) %>%
-    filter(!(type == "touch_predict" & class == "TP"))
-  {
-    a = 0.00055
-    w = 0.00002
-    scatterplot(data=data %>% bind_rows(events %>% select(-p, -class)), 
-                sensor_type="pressure", col="one",
-                start=a, end=a+w) +
-      geom_point(aes(x=time, y=-0),
-                 color="green",
-                 data=classification_df %>% filter(class == "TP")) +
-      geom_point(aes(x=time, y=-0),
-                 color="red",
-                 data=classification_df %>% filter(class != "TP"))
-  }
+  # 
+  # classification_df <- bind_rows(touch_data, touch_predict_data) %>%
+  #   filter(!(type == "touch_predict" & class == "TP"))
+  # {
+  #   a = 0.00055
+  #   w = 0.00002
+  #   scatterplot(data=data %>% bind_rows(events %>% select(-class)), 
+  #               sensor_type="pressure", col="one",
+  #               start=a, end=a+w) +
+  #     geom_point(aes(x=time, y=-0),
+  #                color="green",
+  #                data=classification_df %>% filter(class == "TP")) +
+  #     geom_point(aes(x=time, y=-0),
+  #                color="red",
+  #                data=classification_df %>% filter(class != "TP"))
+  # }
     
   
   

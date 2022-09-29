@@ -741,7 +741,7 @@ Now, we repeat as much as we need to for Jenny's data
 3e. Put the events in data_complete_jenny
 3f. build_df_touch(data_complete, touch_confidence, labeled=FALSE)
 
-
+We'll read the numbers WITHOUT using the labels, and use the labels only for evaluation.
 
 
 
@@ -749,6 +749,9 @@ Then, collect a large amount of Jenny's number data.
 4a. Again, clean the tidbits into data
 4b. Label as testing this time
 4c. Build test_df
+
+
+
 
 If it all goes well, we can do a random thing.
 
@@ -784,10 +787,10 @@ save(touch_model, file="data/phase_1_clean/touch_model.Rda")
 pressure_and_touch <- phase_1_data %>% filter(type %in% c("pressure", "touch"))
 w=5
 pressure_model_data <- build_df(pressure_and_touch, width=w, incidences=4)
-training_data <- pressure_model_data %>% 
+training_data <- pressure_model_data %>%
   mutate(a=X1,b=X3+X4) %>%
   select(a, b, pressure)
-output <- predict(touch_model, 
+output <- predict(touch_model,
                   newdata=training_data)
 fitted.values <- 1/(1+exp(-1*(output))) %>%
   lead(3, default=0)
@@ -799,9 +802,7 @@ touch_confidence <- pressure_and_touch %>%
   filter(type == "pressure") %>%
   slice(w:(w+length(output)-1)) %>%
   bind_cols(p=fitted.values)
-
-
-touch_confidence <- train_pressure_model(phase_1_data, width=5, incidences=4)
+#touch_confidence <- train_pressure_model(phase_1_data, width=5, incidences=4)
 
 
 # let's double check visually
@@ -812,18 +813,17 @@ scatterplot_pressure_model(data=phase_1_data, touch_confidence=touch_confidence,
                            threshold=0.3)
 
 # 2d. Conduct threshold_trials, save threshold, make figures ?
-threshold_trials <- evaluate_thresholds(data=phase_1_data, touch_confidence, sets=c("testing", "training"))
+threshold_trials <- evaluate_thresholds(data=phase_1_data, touch_confidence, sets=c("testing"))
 threshold <- mean(c(threshold_trials$threshold_F1, threshold_trials$threshold_Fhalf))
-threshold = 0.3
 thresholded <- threshold_pressure(touch_confidence, threshold)
 
 # 2e. Threshold the pressure, create data_complete, save as .rda
 touch_predicts <- thresholded %>% filter(type == "touch_predict") %>% select(-p)
-data <- bind_rows(phase_1_data, touch_predicts)
-  
+data_complete <- bind_rows(phase_1_data, touch_predicts)
+save(data_complete, file="data_complete.Rda")
 
 # 2f. Build_df_touch(data_complete, touch_confidence, labeled=TRUE)
-
+build_df_touch(data_complete, touch_confidence, labeled=TRUE)
 ```
 
 

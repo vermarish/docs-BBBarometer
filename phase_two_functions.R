@@ -57,18 +57,21 @@ mine_features <- function(data, touch_confidence, times) {
   features[,dim(features)[2]] = times
   
   # include pressure data
+  # we'll delay the time signal by 2, then do a fuzzy match of r=3.
+  # this checks the interval [t-1, t+5]
+  # we retrieve the maximum pressure value from this interval
+  # TODO we should consider centering all pressure data way before this step.
+  #      like in phase zero or something.
   pressure = touch_confidence
   d = pressure$time %>% diff %>% median()
   pressure$time = pressure$time + 2*d
   times_df = tibble(time=times)
-  max_pressure_df <- difference_inner_join(times_df, touch_confidence, by="time", max_dist=3*d) %>%
+  max_pressure_df <- difference_inner_join(times_df, pressure, by="time", max_dist=3*d) %>%
     group_by(time.x) %>%
     summarise(pressure = max(one)) %>%
     select(time=time.x, pressure)
   max_pressure_df_calibrated <- left_join(times_df, max_pressure_df, by="time")
   features[,dim(features)[2] - 1] = max_pressure_df_calibrated$pressure
-  
-  
   
   
   # create feature names
@@ -172,19 +175,21 @@ build_df_touch <- function(data, touch_confidence, labeled=TRUE) {
 
 
 
-# from filepath or tidbits, predict touch and build a dataframe of touch_predicts 
-build_experiment <- function(tidbits=NULL, path="data/trial.csv") {
-  if (is.null(tidbits)) {
+# predict touch and build a dataframe of touch_predicts
+#   if data is specified, assumes data is marked with set = {"training", "testing"}
+#   otherwise if filepath is specified, reads csv and portions first 0.6 as training
+build_experiment <- function(data=NULL, path="data/trial.csv") {
+  if (is.null(data)) {
     tidbits <- read_csv(path, show_col_types=FALSE)
+    
+    data <- clean_tidbits(tidbits)
+    
+    ## Portion data into train and test
+    prop = 0.6
+    data <- data %>%
+      mutate(set = ifelse(time < quantile(time, prop),
+                          "training", "testing"))
   }
-  
-  data <- clean_tidbits(tidbits)
-  
-  ## Portion data into train and test
-  prop = 0.6
-  data <- data %>%
-    mutate(set = ifelse(time < quantile(time, prop),
-                        "training", "testing"))
   
   # Predict touch ~ pressure (training dataset)
   touch_confidence <- train_pressure_model(data, width=5, incidences=4)
