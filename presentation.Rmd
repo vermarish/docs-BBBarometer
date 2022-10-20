@@ -6,18 +6,52 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo=FALSE,
+                      warning=FALSE,
+                      message=FALSE)
+
+library(tidyverse)
+library(ggthemes)
+
+## Filepath on my desktop
+setwd("E:\\Desktop\\projects\\docs-BBBarometer")
 ```
+
+## Introduction
+
 
 This project will show you how your smartphone's accelerometer and pressure sensor can be used as a side-channel attack to read your PIN. 
 
 (scroll to continue)
+
+## Plan of Attack
+
+```{r load_data, include=FALSE}
+tidbits <- read_csv("data/trial.csv")
+source("cleaning_and_plotting.R")
+data <- clean_tidbits(tidbits)
+rm(tidbits)
+
+default_range = data %>% filter(type=="touch") %>% pull(time) %>% quantile(c(0.1,0.2))
+```
 
 Let's start by typing in a bunch of random numbers.  
 
 > video appears  
 
 > side-scrolling graph appears with red touches
+
+
+```{r}
+tap_circles <- data %>%
+  filter(type=="touch") %>%
+  ggplot(aes(x=time, y=0)) +
+  geom_point(color="red", size=5) +
+  coord_fixed() +
+  scale_y_continuous(position="right", limits=0.2*diff(default_range)/2*c(-1,1)) +
+  scale_x_reverse(limits=rev(default_range))
+tap_circles
+```
 
 
 Your phone's barometer is normally used to measure the air pressure.  
