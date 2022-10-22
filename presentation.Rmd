@@ -12,6 +12,12 @@ knitr::opts_chunk$set(echo=FALSE,
 
 library(tidyverse)
 library(ggthemes)
+library(ggpubr) # for multiple ggplots in one figure
+library(fuzzyjoin)  # for mining a pressure feature
+
+source("cleaning_and_plotting.R")
+source("phase_one_functions.R")
+source("phase_two_functions.R")
 
 ## Filepath on my desktop
 setwd("E:\\Desktop\\projects\\docs-BBBarometer")
@@ -22,48 +28,110 @@ setwd("E:\\Desktop\\projects\\docs-BBBarometer")
 
 This project will show you how your smartphone's accelerometer and pressure sensor can be used as a side-channel attack to read your PIN. 
 
-(scroll to continue)
+
 
 ## Plan of Attack
 
+
+
+
 ```{r load_data, include=FALSE}
 tidbits <- read_csv("data/trial.csv")
-source("cleaning_and_plotting.R")
+
 data <- clean_tidbits(tidbits)
 rm(tidbits)
-
 default_range = data %>% filter(type=="touch") %>% pull(time) %>% quantile(c(0.1,0.2))
+prop = 0.5
+data <- data %>%
+  mutate(set = ifelse(time < quantile(time, prop),
+                      "training", "testing"))
+exp1 <- build_experiment(data=data)
+rm(data)
+
+attach(exp1)
+# this creates:
+# - data
+# - touch_confidence
+# - threshold
+# - threshold_trials
+# - events
 ```
-
-Let's start by typing in a bunch of random numbers.  
-
-> video appears  
-
-> side-scrolling graph appears with red touches
+To start, we need a game that will have the user tapping on different parts of the screen. 
+Whack-a-mole should do the trick.
 
 
-```{r}
+> video appears
+
+
+```{r, fig.height=2}
 tap_circles <- data %>%
   filter(type=="touch") %>%
   ggplot(aes(x=time, y=0)) +
   geom_point(color="red", size=5) +
   coord_fixed() +
-  scale_y_continuous(position="right", limits=0.2*diff(default_range)/2*c(-1,1)) +
+  scale_y_continuous(position="right", limits=0.08*diff(default_range)/2*c(-1,1)) +
   scale_x_reverse(limits=rev(default_range))
 tap_circles
 ```
 
 
-Your phone's barometer is normally used to measure the air pressure.  
-When you tap your phone screen, the barometer records a sharp increase in air pressure.  
+A phone's barometer is normally used to measure atmospheric air pressure, but funnily enough, when a user taps their phone screen, the barometer records a sharp increase in air pressure.
 
-> side-scrolling pressure graph appears with red touches
+```{r, fig.height=3}
+pressure_plot <- scatterplot(data %>% filter(type %in% c("pressure", "touch")) %>% mutate(one = one+980), "pressure", "one") +
+  scale_y_continuous(position="right", limits=c(979.9, 980.15)) +
+  xlim(default_range) +
+  labs(title="", subtitle="") +
+  theme(legend.position="none",
+        axis.title.x = element_blank())
+
+ggarrange(pressure_plot, tap_circles,
+          ncol=1)
+```
+
+At the same time, the gyroscope records the rotational motion of the phone, 
+It's very sensitive, but it does pick up the impulse delivered by a user's finger.
+
+```{r}
+
+gyro = list()
+
+gyro$p1 = scatterplot(data %>% filter(type %in% c("gyroscope", "touch")), "gyroscope", "one")
+gyro$p2 = scatterplot(data %>% filter(type %in% c("gyroscope", "touch")), "gyroscope", "two")
+gyro$p3 = scatterplot(data %>% filter(type %in% c("gyroscope", "touch")), "gyroscope", "three")
+
+gyro$p1 = gyro$p1 + scale_y_continuous(position="right", limits=0.6*c(-1,1)) +
+  ylim(0.5*c(-1,1)) +
+  xlim(default_range) +
+  labs(title="", subtitle="") +
+  theme(legend.position="none",
+        plot.margin=unit(c(0,0,0,0), 'cm'),
+        axis.title.x = element_blank()) +
+  scale_y_continuous(position="right")
+gyro$p2 = gyro$p2 + scale_y_continuous(position="right", limits=0.6*c(-1,1)) +
+  ylim(0.5*c(-1,1)) +
+  xlim(default_range) +
+  labs(title="", subtitle="") +
+  theme(legend.position="none",
+        plot.margin=unit(c(0,0,0,0), 'cm'),
+        axis.title.x = element_blank()) +
+  scale_y_continuous(position="right")
+gyro$p3 = gyro$p3 + scale_y_continuous(position="right", limits=0.6*c(-1,1)) +
+  ylim(0.5*c(-1,1)) +
+  xlim(default_range) +
+  labs(title="", subtitle="") +
+  theme(legend.position="none",
+        plot.margin=unit(c(0,0,0,0), 'cm'),
+        axis.title.x = element_blank()) +
+  scale_y_continuous(position="right")
 
 
+ggarrange(pressure_plot, gyro$p1, gyro$p2, gyro$p3, tap_circles,
+          heights=c(1,1,1,1,1),
+          ncol=1)
+```
 
-
-
-
-
-
+If the __pressure sensor__ reveals when the user taps,  
+and the _gyroscope_ then reveals where the user taps,  
+then both sensors can be used to reveal a user's PIN code.
 
