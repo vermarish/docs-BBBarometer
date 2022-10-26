@@ -33,6 +33,23 @@ This project will show you how your smartphone's accelerometer and pressure sens
 ## Plan of Attack
 
 
+```{r data_cleaner}
+tidbits <- read_csv("data/trial.csv")
+
+data <- clean_tidbits(tidbits)
+rm(tidbits)
+default_range = data %>% filter(type=="touch") %>% pull(time) %>% quantile(c(0.1,0.2))
+prop = 0.5
+data <- data %>%
+  mutate(set = ifelse(time < quantile(time, prop),
+                      "training", "testing"))
+exp1 <- build_experiment(data=data)
+rm(data)
+
+
+
+```
+
 
 
 ```{r load_data, include=FALSE}

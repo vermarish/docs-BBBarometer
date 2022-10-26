@@ -211,14 +211,6 @@ scatterplot_pressure_model <- function(data, touch_confidence, a, b, threshold=0
   open = touch_span*a + first_touch
   close = touch_span*b + first_touch
   
-  # TODO remove this plot
-  # also, try coloring: testing red, training #d781d5
-  scatterplot(touch_confidence, sensor_type, col, a, b) +
-    geom_line(data=touch_confidence %>% 
-                filter(time > open & time < close),
-              aes(y=p*diff(range(one)) + min(one),
-                  colour=set))
-  
   foo <- scatterplot(data, sensor_type, col, a, b) + ggtitle("")
   bar <- touch_confidence %>%
     filter(time > open & time < close) %>%
@@ -253,7 +245,7 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
   dt = 4e7
   margin = 8*dt  # radius of the window for matching a touch_predict with a touch
   
-  thresholds = seq(0.05, 0.6, 0.01)
+  thresholds = seq(0.05, 0.99, 0.01)
   # thresholds = 0.3  # TODO remove
   
   TP = integer(length(thresholds))
@@ -272,9 +264,8 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
       mutate(class = sapply(type, function(t) {if (t=="touch") "FN" else "FP"}))
     
     # only evaluate with the testing data, or with the training data, or whatever
-    # events <- events %>%
-    #   filter(set %in% sets)
-    # TODO uncomment above
+    events <- events %>%
+      filter(set %in% sets)
     
     # two-pointer iteration through touch_data and touch_predict_data  (O(n))
     touch_data <- events %>% filter(type == "touch")
@@ -300,42 +291,7 @@ evaluate_thresholds <- function(data, touch_confidence, sets = "testing") {
     TP[k] <- classifications["TP"]
     FP[k] <- classifications["FP"]
     FN[k] <- classifications["FN"]
-    
-    # classifications_by_set <- bind_rows(touch_data, touch_predict_data) %>%
-    #   arrange(time) %>%
-    #   filter(!(type == "touch_predict" & class == "TP")) %>%
-    #   select(class, set) %>%
-    #   table()
   }
-  
-  # TODO remove 5 lines up through 30 lines down
-  # classifications_by_set
-  # # scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-p, -class)), 
-  # #                            touch_confidence=touch_confidence,
-  # #                            a=0.00001, b=0.00009,
-  # #                            threshold=0.3)
-  # scatterplot_pressure_model(data=data %>% bind_rows(events %>% select(-class)),
-  #                            touch_confidence=touch_confidence,
-  #                            a=0.00055, b=0.00057,
-  #                            threshold=0.3)
-  # 
-  # classification_df <- bind_rows(touch_data, touch_predict_data) %>%
-  #   filter(!(type == "touch_predict" & class == "TP"))
-  # {
-  #   a = 0.00055
-  #   w = 0.00002
-  #   scatterplot(data=data %>% bind_rows(events %>% select(-class)), 
-  #               sensor_type="pressure", col="one",
-  #               start=a, end=a+w) +
-  #     geom_point(aes(x=time, y=-0),
-  #                color="green",
-  #                data=classification_df %>% filter(class == "TP")) +
-  #     geom_point(aes(x=time, y=-0),
-  #                color="red",
-  #                data=classification_df %>% filter(class != "TP"))
-  # }
-    
-  
   
   performance_by_threshold <- tibble(threshold=thresholds, TP, FN, FP) %>%
     replace_na(list(TP=0, FP=0, FN=0)) %>%
